@@ -77,7 +77,6 @@ use std::{borrow::Cow, env, fmt, path::PathBuf};
 
 /// Ошибки вызовов библиотеки
 #[derive(Debug)]
-/// Общий вид для неспециализированных ошибок
 pub struct Error {
     /// метод библиотеки, приведший к ошибке
     method: String,
@@ -319,7 +318,7 @@ impl LibTxc {
     /// ```
     /// # Errors
     ///
-    /// [`Error::Generic`] ошибкa, возвращённая библиотекой
+    /// [`Error`] ошибкa, возвращённая библиотекой
     pub fn initialize(&mut self, log_path: PathBuf, log_level: LogLevel) -> Result<(), Error> {
         assert!(log_path.exists(), "{:?} not exists", log_path);
         let c_log_path = ffi::to_cstring(log_path.display().to_string());
@@ -338,7 +337,7 @@ impl LibTxc {
     ///
     /// # Errors
     ///
-    /// [`Error::Generic`] ошибкa, возвращённая библиотекой
+    /// [`Error`] ошибкa, возвращённая библиотекой
     pub fn uninitialize(&self) -> Result<(), Error> {
         self.errmsg(self.imp.uninitialize())
             .map(|msg| egeneric!("UnInitialize", msg))
@@ -350,7 +349,7 @@ impl LibTxc {
     ///
     /// # Errors
     ///
-    /// [`Error::Generic`] ошибкa, возвращённая библиотекой
+    /// [`Error`] ошибкa, возвращённая библиотекой
     pub fn set_loglevel(&self, log_level: LogLevel) -> Result<(), Error> {
         self.errmsg(self.imp.set_log_level(log_level.into()))
             .map(|msg| egeneric!("SetLogLevel", [log_level], msg))
@@ -369,7 +368,7 @@ impl LibTxc {
     ///
     /// # Errors
     ///
-    /// [`Error::Generic`] ошибкa, возвращённая библиотекой
+    /// [`Error`] ошибкa, возвращённая библиотекой
     pub fn send_command(&self, command: &str) -> Result<String, Error> {
         let c_str = ffi::to_cstring(command);
         let r = self.imp.send_command(c_str.as_c_str());
