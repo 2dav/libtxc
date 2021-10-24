@@ -199,11 +199,16 @@ pub struct TxcBuff<'a> {
 
 impl Drop for TxcBuff<'_> {
     fn drop(&mut self) {
-        if !self.lib.free_memory(self.p) {
-            // bad?
-        }
+        // FreeMemory() == false с живым буфером недокументированная ситуация
+        assert!(
+            self.lib.free_memory(self.p),
+            "Операция очистки txc буфера FreeMemory(*) завершилась неудачно. 
+            Это UB, при корректной работе коннектора и обёртки не должно происходить в принципе. 
+            Отправьте github issue."
+        );
     }
 }
+
 impl AsRef<CStr> for TxcBuff<'_> {
     fn as_ref(&self) -> &CStr {
         unsafe { CStr::from_ptr(self.p.cast()) }
