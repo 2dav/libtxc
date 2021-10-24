@@ -1,0 +1,14 @@
+cargo-features = ["edition2021"]
+
+[package]
+name = "libtxc"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["lib"]
+doctest = false
+
+[dependencies]
+winapi  = {version = "0.3.8", features = ["errhandlingapi", "libloaderapi"]}
