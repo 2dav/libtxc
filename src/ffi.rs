@@ -21,7 +21,7 @@ pub(crate) unsafe fn load<P: AsRef<OsStr>>(path: P) -> Result<Lib, std::io::Erro
     let mut prev_mode = 0;
     er::SetThreadErrorMode(1, &mut prev_mode);
     let handle = {
-        let h = ll::LoadLibraryExW(wide_filename.as_ptr(), std::ptr::null_mut(), 0);
+        let h = ll::LoadLibraryW(wide_filename.as_ptr());
         if h.is_null() {
             Err(std::io::Error::from_raw_os_error(er::GetLastError() as i32))
         } else {
