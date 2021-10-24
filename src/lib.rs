@@ -176,7 +176,7 @@ impl Drop for LibTxc {
 /// - получить `String` - alloc, memcopy, utf-8 check
 ///
 ///
-/// # Examples
+/// # Примеры
 /// ```
 /// use libtxc::TxcBuff;
 /// use std::ffi::CStr;
@@ -203,7 +203,7 @@ impl Drop for TxcBuff<'_> {
         assert!(
             self.lib.free_memory(self.p),
             "Операция очистки txc буфера FreeMemory(*) завершилась неудачно. 
-            Это UB, при корректной работе коннектора и обёртки не должно происходить в принципе. 
+            При корректной работе коннектора и обёртки это не должно происходить в принципе. 
             Отправьте github issue."
         );
     }
