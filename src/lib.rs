@@ -374,9 +374,9 @@ impl LibTxc {
     /// # Errors
     ///
     /// [`Error`] ошибкa, возвращённая библиотекой
-    pub fn send_command(&self, command: &str) -> Result<String, Error> {
-        let c_str = ffi::to_cstring(command);
-        let r = self.imp.send_command(c_str.as_c_str());
+    pub fn send_command<C: AsRef<str>>(&self, command: C) -> Result<String, Error> {
+        let cmd = command.as_ref();
+        let r = self.imp.send_command(ffi::to_cstring(cmd).as_c_str());
         let msg: String = self.wrap_txc_buffer(r).into();
         if msg.chars().nth(17).unwrap() == 't' {
             // <result success=”true” ... />
@@ -388,7 +388,7 @@ impl LibTxc {
             // </result>
             //
             // <error> Текст сообщения об ошибке</error>
-            egeneric!("SendCommand", [command], msg)
+            egeneric!("SendCommand", [cmd], msg)
         }
     }
 
