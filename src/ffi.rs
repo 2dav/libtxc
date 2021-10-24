@@ -68,7 +68,7 @@ type SetCallbackEx = unsafe extern "C" fn(CallbackEx, *const c_void) -> bool;
 
 #[no_mangle]
 extern "C" fn txc_callback_ex(p: *const u8, ctx: *mut c_void) -> bool {
-    let cb = unsafe { std::mem::transmute::<_, &mut Box<dyn FnMut(*const u8)>>(ctx) };
+    let cb = unsafe { &mut *(ctx as *mut Box<dyn FnMut(*const u8)>) };
     cb(p);
     true
 }
