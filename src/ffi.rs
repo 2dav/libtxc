@@ -1,7 +1,5 @@
 use std::ffi::{CStr, CString, OsStr};
-use std::mem::MaybeUninit;
 use std::os::windows::prelude::OsStrExt;
-use std::ptr::addr_of_mut;
 use std::result::Result;
 
 use std::os::raw::{c_int, c_void};
@@ -41,28 +39,22 @@ pub(crate) unsafe fn load<P: AsRef<OsStr>>(path: P) -> Result<Lib, std::io::Erro
                 Ok(s)
             }
         }
-        let mut uninit = MaybeUninit::<Lib>::uninit();
-        let ptr = uninit.as_mut_ptr();
-
         let initialize = paddr(h, b"Initialize\0")?;
-        addr_of_mut!((*ptr)._initialize).write(initialize);
-
         let set_loglevel = paddr(h, b"SetLogLevel\0")?;
-        addr_of_mut!((*ptr)._set_log_level).write(set_loglevel);
-
         let send_command = paddr(h, b"SendCommand\0")?;
-        addr_of_mut!((*ptr)._send_command).write(send_command);
-
         let set_cb_ex = paddr(h, b"SetCallbackEx\0")?;
-        addr_of_mut!((*ptr)._set_callback_ex).write(set_cb_ex);
-
         let free_mem = paddr(h, b"FreeMemory\0")?;
-        addr_of_mut!((*ptr)._free_memory).write(free_mem);
-
         let uninitialize = paddr(h, b"UnInitialize\0")?;
-        addr_of_mut!((*ptr)._uninitialize).write(uninitialize);
-        addr_of_mut!((*ptr).handle).write(h);
-        Ok(uninit.assume_init())
+
+        Ok(Lib {
+            handle: h,
+            _initialize: initialize,
+            _set_log_level: set_loglevel,
+            _send_command: send_command,
+            _set_callback_ex: set_cb_ex,
+            _free_memory: free_mem,
+            _uninitialize: uninitialize,
+        })
     })
 }
 
