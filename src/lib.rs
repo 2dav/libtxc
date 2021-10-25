@@ -375,8 +375,23 @@ impl LibTxc {
     ///
     /// [`Error`] ошибкa, возвращённая библиотекой
     pub fn send_command<C: AsRef<str>>(&self, command: C) -> Result<String, Error> {
-        let cmd = command.as_ref();
-        let r = self.imp.send_command(ffi::to_cstring(cmd).as_c_str());
+        self.send_bytes(ffi::to_cstring(command).as_bytes())
+    }
+
+    /// В отличие от [`send_command()`], принимает байты в качестве аргумента.
+    /// Этот метод не имеет затрат связанных с конвертацией Rust String -> C-String, предполагая
+    /// что данные уже имеют завершающий \0. Вызовы без завершающего \0 - UB.
+    ///
+    /// # Panics
+    /// Если последний байт отличаетсся от \0.
+    pub fn send_bytes<C: AsRef<[u8]>>(&self, command: C) -> Result<String, Error> {
+        let pl = command.as_ref();
+        assert_eq!(
+            pl[pl.len() - 1],
+            b'\0',
+            "Данные должны иметь завершающий \0"
+        );
+        let r = self.imp.send_bytes(pl);
         let msg: String = self.wrap_txc_buffer(r).into();
         if msg.chars().nth(17).unwrap() == 't' {
             // <result success=”true” ... />
@@ -388,6 +403,7 @@ impl LibTxc {
             // </result>
             //
             // <error> Текст сообщения об ошибке</error>
+            let cmd = unsafe { std::str::from_utf8_unchecked(pl) };
             egeneric!("SendCommand", [cmd], msg)
         }
     }

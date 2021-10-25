@@ -90,8 +90,8 @@ impl Lib {
     }
 
     #[inline(always)]
-    pub fn send_command(&self, cmd: &CStr) -> *const u8 {
-        unsafe { self.pcast::<SendCommand>(&self._send_command)(cmd.as_ptr().cast()) }
+    pub fn send_bytes(&self, cmd: &[u8]) -> *const u8 {
+        unsafe { self.pcast::<SendCommand>(&self._send_command)(cmd.as_ptr()) }
     }
 
     #[inline(always)]
