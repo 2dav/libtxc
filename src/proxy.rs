@@ -2,6 +2,11 @@ use libtxc::{LibTxc, LogLevel};
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
 
+#[inline(always)]
+fn last_os_error() -> io::Error {
+    io::Error::last_os_error()
+}
+
 fn bind(port: u16) -> std::io::Result<TcpListener> {
     TcpListener::bind(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port))
 }
@@ -32,7 +37,7 @@ fn init_lib(port: u16, mut data_stream: TcpStream) -> io::Result<LibTxc> {
 
 fn handle_conn(mut cmd_stream: TcpStream) {
     match bind_random()
-        .ok_or(io::Error::last_os_error())
+        .ok_or(last_os_error())
         .and_then(|(port, listener)| {
             println!("{}: порт данных открыт, ожидаю подключение", port);
             cmd_stream
@@ -73,8 +78,10 @@ pub fn main() -> std::io::Result<()> {
             break;
         }
     }
-
-    let listener = bind(control_port)?;
+    let (control_port, listener) = bind(control_port).map(|l| (control_port, l)).or_else(|_| {
+        eprintln!("127.0.0.1:{} bind error {}", control_port, last_os_error());
+        bind_random().ok_or(last_os_error())
+    })?;
     println!("Сервер запущен на: {}", control_port);
     for conn in listener.incoming() {
         let stream = conn?;
