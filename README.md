@@ -7,6 +7,8 @@ Rust интерфейс к [TRANSAQ XML Connector](https://www.finam.ru/howtotra
 - конвертация `Rust String` <> `C-String`
 - автоматическое освобождениe буферов коннектора
 
+и прокси сервер для работы с библиотекой под linux\wine.
+
 ### Документация
 ```bash
 cargo doc --no-deps --open
