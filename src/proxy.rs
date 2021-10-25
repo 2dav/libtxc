@@ -21,15 +21,16 @@ fn bind_random() -> Option<(u16, TcpListener)> {
 }
 
 fn init_lib(id: u16, mut data_stream: TcpStream) -> io::Result<LibTxc> {
-    let cd = std::env::current_dir()?;
-    let mut lib = LibTxc::new(cd.clone())?;
+    let wd = std::env::current_dir()?;
+    let log_dir = wd.join("sessions").join(id.to_string());
+    let mut lib = LibTxc::new(wd)?;
     println!("{}: библиотека загружена", id);
 
-    let cd = cd.join("sessions").join(format!("{}", id));
-    std::fs::create_dir_all(cd.clone())?;
-    lib.initialize(cd.clone(), LogLevel::Minimum)?;
-    println!("{}: логи коннектора сохраняются в {:?}", id, cd);
+    std::fs::create_dir_all(log_dir.clone())?;
+    lib.initialize(log_dir.clone(), LogLevel::Minimum)?;
+    println!("{}: логи коннектора сохраняются в {:?}", id, log_dir);
     lib.set_callback(move |buff| data_stream.write_all(&*buff));
+
     Ok(lib)
 }
 
@@ -39,8 +40,11 @@ fn handle_conn(mut cmd_stream: TcpStream) {
         .and_then(|(data_port, listener)| {
             println!("{}: порт данных открыт, ожидаю подключение", data_port);
             cmd_stream
+                // отправляем data port клиенту
                 .write_all(&data_port.to_le_bytes())
+                // ожидаем подключения
                 .and_then(|_| listener.accept())
+                // инициализируем библиотеку
                 .and_then(|(data_stream, _)| init_lib(data_port, data_stream))
                 .map(|lib| (lib, data_port))
         }) {
