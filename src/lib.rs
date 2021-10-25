@@ -5,7 +5,7 @@
 
 //! Rust интерфейс к [TRANSAQ XML Connector](https://www.finam.ru/howtotrade/tconnector/)
 //!
-//! Релизует минимум необходимого для работы с коннектором из rust:
+//! Реaлизует минимум необходимого для работы с коннектором из rust:
 //! - динамическая загрузкa экземпляров библиотеки
 //! - конвертация `Rust String` <> `C-String`
 //! - автоматическое освобождениe буферов коннектора
@@ -36,10 +36,10 @@
 //!
 //! fn main() -> Result<()>{
 //!     // Загрузить txmlconnector(64).dll из текущей директории
-//!     let lib: LibTxc = Default::default();
-//!     // аналогично
 //!     let dll_search_dir = env::current_dir()?;
 //!     let lib = LibTxc::new(dll_search_dir)?;
+//!     // аналогично
+//!     let lib: LibTxc = Default::default();
 //!     Ok(())
 //! }
 //! ```
@@ -49,6 +49,14 @@
 //!
 //! let mut lib:LibTxc = Default::default();
 //! lib.set_callback(|buff:TxcBuff| {});
+//! ```
+//! Отправка сообщений
+//! - [`LibTxc::send_command()`] - отправить rust string-like что-нибудь; копирует данные, добавляет заверщающий \0
+//! - [`LibTxc::send_bytes()`] - отправить голые байты заканчивающиеся \0; 0-cost
+//! ```
+//! let lib = ...
+//! lib.send_command("...");
+//! lib.send_bytes("...\0".as_bytes());
 //! ```
 //! Обработка сообщений см. [`TxcBuff`]
 //! ```
