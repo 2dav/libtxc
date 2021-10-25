@@ -79,11 +79,11 @@ use std::{borrow::Cow, env, fmt, path::PathBuf};
 #[derive(Debug)]
 pub struct Error {
     /// метод библиотеки, приведший к ошибке
-    method: String,
+    pub method: String,
     /// аргументы
-    args: String,
+    pub args: String,
     /// текст сообщения об ошибке, возвращённый библиотекой
-    message: String,
+    pub message: String,
 }
 
 impl fmt::Display for Error {
