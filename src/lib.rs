@@ -177,9 +177,9 @@ impl Drop for LibTxc {
 /// Освобождение бyфера коннектора(dll:FreeMemory) происходит вместе с деструктором(Drop::drop) `TxcBuff`.
 ///
 /// Доступ к содержимому буфера:
-/// - получить `&[u8]`  - 0-cost
-/// - получить `CStr`   - 0-cost
-/// - получить `String` - alloc, memcopy, utf-8 check
+/// - [`TxcBuff::deref()`]  - получить `[u8]`; 0-cost
+/// - [`TxcBuff::as_ref()`] - получить `CStr`; 0-cost
+/// - [`TxcBuff::into()`]   - получить `String`; alloc, memcopy, utf-8 check
 ///
 ///
 /// # Примеры
