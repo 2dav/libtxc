@@ -9,7 +9,7 @@ fn bind(port: u16) -> std::io::Result<TcpListener> {
 fn bind_random() -> Option<(u16, TcpListener)> {
     for port in 1025..65535 {
         if let Ok(listener) = bind(port) {
-            return Some((listener.local_addr().unwrap().port(), listener));
+            return Some((port, listener));
         }
     }
     None
