@@ -73,10 +73,15 @@ pub fn main() -> std::io::Result<()> {
             break;
         }
     }
-    let (control_port, listener) = bind(control_port).map(|l| (control_port, l)).or_else(|_| {
-        eprintln!("127.0.0.1:{} bind error {}", control_port, last_os_error());
-        bind_random().ok_or_else(last_os_error)
-    })?;
+
+    let (control_port, listener) = match bind(control_port) {
+        Ok(l) => Ok((control_port, l)),
+        Err(e) => {
+            eprintln!("127.0.0.1:{} bind error {}", control_port, e);
+            bind_random().ok_or_else(last_os_error)
+        }
+    }?;
+
     println!("Сервер запущен на: {}", control_port);
     for conn in listener.incoming() {
         let stream = conn?;
