@@ -105,12 +105,12 @@ impl Lib {
     }
 
     #[inline(always)]
-    pub fn set_callback<F>(&self, callback: F) -> bool
+    pub fn set_callback<F, R>(&self, callback: F) -> bool
     where
-        F: FnMut(*const u8),
+        F: FnMut(*const u8) -> R,
     {
         // double indirection needed to get a c_void compatible pointer from trait object pointer
-        let ctx: Box<Box<dyn FnMut(*const u8)>> = Box::new(Box::new(callback));
+        let ctx: Box<Box<dyn FnMut(*const u8) -> R>> = Box::new(Box::new(callback));
         unsafe {
             self.pcast::<SetCallbackEx>(&self._set_callback_ex)(
                 txc_callback_ex,
