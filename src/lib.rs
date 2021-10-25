@@ -86,6 +86,12 @@ pub struct Error {
     pub message: String,
 }
 
+impl From<Error> for std::io::Error {
+    fn from(e: Error) -> Self {
+        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(

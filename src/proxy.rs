@@ -27,10 +27,8 @@ fn init_lib(port: u16, mut data_stream: TcpStream) -> io::Result<LibTxc> {
 
     let cd = cd.join("sessions").join(format!("{}", port));
     std::fs::create_dir_all(cd.clone())?;
-    lib.initialize(cd.clone(), LogLevel::Minimum)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+    lib.initialize(cd.clone(), LogLevel::Minimum)?;
     println!("{}: логи коннектора сохраняются в {:?}", port, cd);
-
     lib.set_callback(move |buff| data_stream.write_all(&*buff));
     Ok(lib)
 }
