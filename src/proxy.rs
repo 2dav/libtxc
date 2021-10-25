@@ -37,7 +37,7 @@ fn init_lib(port: u16, mut data_stream: TcpStream) -> io::Result<LibTxc> {
 
 fn handle_conn(mut cmd_stream: TcpStream) {
     match bind_random()
-        .ok_or(last_os_error())
+        .ok_or_else(last_os_error)
         .and_then(|(port, listener)| {
             println!("{}: порт данных открыт, ожидаю подключение", port);
             cmd_stream
@@ -51,10 +51,7 @@ fn handle_conn(mut cmd_stream: TcpStream) {
             let mut reader = BufReader::new(cmd_stream.try_clone().unwrap());
             let mut buff = Vec::with_capacity(1 << 20);
 
-            while match reader.read_until(b'\0', &mut buff) {
-                Ok(0) | Err(_) => false,
-                _ => true,
-            } {
+            while !matches!(reader.read_until(b'\0', &mut buff), Ok(0) | Err(_)) {
                 let resp = match lib.send_bytes(&buff) {
                     Ok(resp) => resp,
                     Err(e) => e.message,
@@ -80,7 +77,7 @@ pub fn main() -> std::io::Result<()> {
     }
     let (control_port, listener) = bind(control_port).map(|l| (control_port, l)).or_else(|_| {
         eprintln!("127.0.0.1:{} bind error {}", control_port, last_os_error());
-        bind_random().ok_or(last_os_error())
+        bind_random().ok_or_else(last_os_error)
     })?;
     println!("Сервер запущен на: {}", control_port);
     for conn in listener.incoming() {
