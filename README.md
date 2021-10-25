@@ -27,7 +27,7 @@ make 64
 wine target/x86_64-pc-windows-gnu/release/example.exe
 ```
 ### Proxy
-Команда сборки (cargo build, make ..) также собирает прокси сервер,
+Команда сборки (cargo build, make ..) также собирает TCP/IP прокси сервер,
 позволяющий изолировать работу с библиотекой, например, для работы с коннектором из под linux/wine.
 
 Запуск прокси `wine proxy.exe [PORT]`. Значение PORT по-умолчанию 5555.
