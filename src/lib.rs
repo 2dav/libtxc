@@ -62,7 +62,7 @@
 //! };
 //! let cb = |buff:TxcBuff|{
 //!     // raw bytes
-//!     let msg: &[u8] = *buff;
+//!     let msg: &[u8] = &*buff;
 //! };
 //! ```
 
@@ -189,7 +189,7 @@ impl Drop for LibTxc {
 /// let cb = |buff:TxcBuff|{
 ///     // работа с содержимым буфера напрямую
 ///     let  cstr: &CStr = buff.as_ref();
-///     let bytes: &[u8] = *buff;
+///     let bytes: &[u8] = &*buff;
 /// };
 /// ```
 pub struct TxcBuff<'a> {
