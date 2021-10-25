@@ -19,7 +19,7 @@ cargo doc --no-deps --open
 Отредактируйте src/example.rs введите свои логин и пароль. 
 ##### Сборка примера для Windows
 ``` bash
-cargo run --release
+cargo run --release --bin example
 ```
 ##### Кросс-компиляция под Linux и запуск под wine
 ```bash
