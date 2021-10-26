@@ -17,7 +17,7 @@ name = "example"
 path = "src/example.rs"
 
 [dependencies]
-winapi  = {version = "0.3.8", features = ["errhandlingapi", "libloaderapi"]}
+winapi  = {version = "0.3.8", features = ["errhandlingapi", "libloaderapi", "winsock2"]}
 
 [profile.release]
-lto = true
+lto = "thin"
