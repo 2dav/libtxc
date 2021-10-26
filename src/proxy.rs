@@ -10,8 +10,8 @@ use std::{
 };
 
 use winapi::um::winsock2::{
-    closesocket, WSADuplicateSocketW, WSAGetLastError, WSASocketW, FROM_PROTOCOL_INFO, SOCKET,
-    WSAPROTOCOL_INFOW, WSA_FLAG_OVERLAPPED,
+    closesocket, WSADuplicateSocketW, WSAGetLastError, WSASocketW, FROM_PROTOCOL_INFO,
+    INVALID_SOCKET, SOCKET, WSAPROTOCOL_INFOW, WSA_FLAG_OVERLAPPED,
 };
 
 #[inline(always)]
@@ -61,7 +61,7 @@ fn handle_conn(mut cmd_stream: TcpStream) -> io::Result<()> {
             init_lib(lib, data_port, ds)
         })?;
 
-    let mut reader = BufReader::new(cmd_stream.try_clone().unwrap());
+    let mut reader = BufReader::new(cmd_stream.try_clone()?);
     let mut buff = Vec::with_capacity(1 << 20);
 
     while !matches!(reader.read_until(b'\0', &mut buff), Ok(0) | Err(_)) {
@@ -96,7 +96,7 @@ fn handler() -> io::Result<()> {
             0,
             WSA_FLAG_OVERLAPPED,
         );
-        if sock == 0 {
+        if sock == INVALID_SOCKET {
             return Err(io::Error::from_raw_os_error(WSAGetLastError()));
         }
         TcpStream::from_raw_socket(sock as RawSocket)
