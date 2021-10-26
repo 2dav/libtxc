@@ -78,13 +78,6 @@ let lib = LibTxc::new(dll_search_dir)?;
 let lib: LibTxc = Default::default();
 ```
 
-```rust
-use libtxc::{LibTxc, TxcBuff};
-
-let mut lib:LibTxc = Default::default();
-lib.set_callback(|buff:TxcBuff| {});
-```
-
 ##### Отправка сообщений
 - `LibTxc::send_command()` - отправить rust string-like что-нибудь; копирует данные, добавляет заверщающий \0
 - `LibTxc::send_bytes()` - отправить голые байты заканчивающиеся \0
