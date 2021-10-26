@@ -9,25 +9,9 @@
 //! - динамическая загрузкa экземпляров библиотеки
 //! - конвертация `Rust String` <> `C-String`
 //! - автоматическое освобождениe буферов коннектора
+//! - корректное отключение, остановка коннектора и освобождение ресурсов
 //!
 //!
-//! ### Examples
-//! ```
-//! use libtxc::{LogLevel, LibTxc};
-//! use std::env;
-//! fn main() -> Result<()>{
-//!     // загрузить библиотеку
-//!     let mut lib: LibTxc = Default::default();
-//!     // инициализировать в текущей директории с минимальным уровнем логирования
-//!     lib.initialize(env::current_dir()?, LogLevel::Minimum)?;
-//!     // установить обработчик
-//!     lib.set_callback(|_|{});
-//!     // отправить команду
-//!     lib.send_command("")?;
-//!     Ok(())
-//! }
-//! // Деструктор Drop::drop для LibTxc вызывает dll::UnInitialize() для корректной остановки
-//! // коннектора и выгружает экземпляр библиотеки
 //! ```
 //! ##### Загрузка экземпляра библиотеки
 //! см. [`LibTxc::new()`]
@@ -61,7 +45,7 @@
 //! ```
 //! ##### Отправка сообщений
 //! - [`LibTxc::send_command()`] - отправить string-like что-нибудь; копирует данные, добавляет заверщающий \0
-//! - [`LibTxc::send_bytes()`] - отправить голые байты заканчивающиеся \0; 0-cost
+//! - [`LibTxc::send_bytes()`] - отправить голые байты заканчивающиеся \0
 //! ```
 //! let lib = ...
 //! lib.send_command("...");
@@ -74,22 +58,19 @@
 //! Освобождение бyфера коннектора(dll:FreeMemory) происходит вместе с деструктором(Drop::drop) `TxcBuff`.
 //!
 //! Доступ к содержимому буфера:
-//! - [`TxcBuff::deref()`]  - получить `[u8]`; 0-cost
-//! - [`TxcBuff::as_ref()`] - получить `CStr`; 0-cost
-//! - [`Into::into()`]   - получить `String`; alloc, memcopy, utf-8 check
+//! - [`TxcBuff::deref()`]  - получить `[u8]`
+//! - [`TxcBuff::as_ref()`] - получить [`CStr`]
+//! - [`Into::into()`]   - получить [`String`]; выделяет память, копирует байты текста, проверяет соответствие utf-8
 //! ```
 //! use std::ffi::CStr;
 //! use std::ops::Deref;
 //! use libtxc::TxcBuff;
 //!
-//! let cb = |buff: TxcBuff|{
-//!     // выделяет память, копирует байты текста, проверяет соответствие utf-8
+//! lib.set_callback(|buff:TxcBuff| {
 //!     let msg: String = buff.into();
-//! };
-//! let cb = |buff:TxcBuff|{
-//!     // raw bytes
+//!     let msg: CStr = buff.as_ref();
 //!     let msg: &[u8] = &*buff;
-//! };
+//! });
 //! ```
 
 mod ffi;
@@ -99,7 +80,7 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 use std::os::raw::c_int;
 use std::result::Result;
-use std::{borrow::Cow, env, fmt, path::PathBuf};
+use std::{env, fmt, path::PathBuf};
 
 /// Ошибки вызовов библиотеки
 #[derive(Debug)]
@@ -173,10 +154,9 @@ impl From<LogLevel> for c_int {
 
 /// Интерфейс к коннектору.
 ///
-/// Содержит экземпляр динамически загруженной библиотеки и пользовательскую функцию обратного
-/// вызова.
+/// Содержит экземпляр динамически загруженной библиотеки.
 /// - `!Sync` + `!Send` не может быть передан между потоками
-/// - выгрузка библиотеки и освобождение ресурсов происходят в деструкторе [`Drop`]
+/// - остановка коннектора, выгрузка библиотеки и освобождение ресурсов происходят в деструкторе [`Drop`]
 pub struct LibTxc {
     imp: ffi::Lib,
     _marker: PhantomData<*const ()>, // !Sync + !Send
@@ -198,52 +178,45 @@ impl Drop for LibTxc {
 /// Обертка над буфером Transaq Connector.
 ///
 /// Передаётся в пользовательскую функцию обратного вызова, содержит указатель на буфер
-/// возвращённый коннектором, позволяет прочитать содержимое.
+/// возвращённый коннектором.
 ///
 /// Освобождение бyфера коннектора(dll:FreeMemory) происходит вместе с деструктором(Drop::drop) `TxcBuff`.
 ///
 /// Доступ к содержимому буфера:
-/// - [`TxcBuff::deref()`]  - получить `[u8]`; 0-cost
-/// - [`TxcBuff::as_ref()`] - получить `CStr`; 0-cost
-/// - [`TxcBuff::into()`]   - получить `String`; alloc, memcopy, utf-8 check
+/// - [`TxcBuff::deref()`]  - получить `[u8]`
+/// - [`TxcBuff::as_ref()`] - получить `CStr`
+/// - [`Into::into()`]   - получить `String`; выделяет память, копирует байты текста, проверяет соответствие utf-8
 ///
 ///
 /// # Примеры
 /// ```
-/// use libtxc::TxcBuff;
 /// use std::ffi::CStr;
 /// use std::ops::Deref;
+/// use libtxc::TxcBuff;
 ///
-/// let cb = |buff:TxcBuff|{
-///     // выделяет память, копирует байты текста, проверяет соответствие utf-8
-///     let owned: String = buff.into();
-/// };
-/// let cb = |buff:TxcBuff|{
-///     // работа с содержимым буфера напрямую
-///     let  cstr: &CStr = buff.as_ref();
-///     let bytes: &[u8] = &*buff;
-/// };
+/// let buff: TxcBuff = ...;
+/// // выделяет память, копирует байты текста, проверяет соответствие utf-8
+/// let msg: String = buff.into();
+/// // CStr
+/// let msg: &[u8] = buff.as_ref();
+/// // raw bytes
+/// let msg: &[u8] = &*buff;
 /// ```
-pub struct TxcBuff<'a> {
-    lib: &'a ffi::Lib,
-    p: *const u8,
-}
+pub struct TxcBuff<'a>(*const u8, &'a ffi::Lib);
 
 impl Drop for TxcBuff<'_> {
     fn drop(&mut self) {
         // FreeMemory() == false с живым буфером недокументированная ситуация
         assert!(
-            self.lib.free_memory(self.p),
-            "Операция очистки txc буфера FreeMemory(*) завершилась неудачно. 
-            При корректной работе коннектора и обёртки это не должно происходить в принципе. 
-            Отправьте github issue."
+            self.1.free_memory(self.0),
+            "Операция очистки txc буфера FreeMemory(*) завершилась неудачно."
         );
     }
 }
 
 impl AsRef<CStr> for TxcBuff<'_> {
     fn as_ref(&self) -> &CStr {
-        unsafe { CStr::from_ptr(self.p.cast()) }
+        unsafe { CStr::from_ptr(self.0.cast()) }
     }
 }
 
@@ -258,10 +231,7 @@ impl Deref for TxcBuff<'_> {
 
 impl From<TxcBuff<'_>> for String {
     fn from(buff: TxcBuff) -> Self {
-        match buff.as_ref().to_string_lossy() {
-            Cow::Owned(m) => m,
-            Cow::Borrowed(s) => s.to_owned(),
-        }
+        buff.as_ref().to_string_lossy().to_string()
     }
 }
 
@@ -308,9 +278,14 @@ impl LibTxc {
         })
     }
 
+    // convert to-string and free buffer. To be used in slow path.
     #[inline(always)]
-    fn wrap_txc_buffer(&self, p: *const u8) -> TxcBuff {
-        TxcBuff { lib: &self.imp, p }
+    fn read_free(&self, p: *const u8) -> String {
+        let msg = unsafe { CStr::from_ptr(p.cast()) }
+            .to_string_lossy()
+            .to_string();
+        self.imp.free_memory(p);
+        msg
     }
 
     #[inline(always)]
@@ -318,7 +293,7 @@ impl LibTxc {
         if p.is_null() {
             None
         } else {
-            Some(self.wrap_txc_buffer(p).into())
+            Some(self.read_free(p))
         }
     }
 
@@ -412,19 +387,19 @@ impl LibTxc {
 
     /// В отличие от [`LibTxc::send_command()`], принимает байты в качестве аргумента.
     /// Этот метод не имеет затрат связанных с конвертацией Rust String -> C-String, предполагая
-    /// что данные уже имеют завершающий \0. Вызовы без завершающего \0 - UB.
+    /// что данные уже имеют завершающий \0.
     ///
     /// # Panics
     /// Если последний байт отличаетсся от \0.
     pub fn send_bytes<C: AsRef<[u8]>>(&self, command: C) -> Result<String, Error> {
         let pl = command.as_ref();
         assert_eq!(
-            pl[pl.len() - 1],
-            b'\0',
+            pl.last().unwrap(),
+            &b'\0',
             "Данные должны иметь завершающий \0"
         );
         let r = self.imp.send_bytes(pl);
-        let msg: String = self.wrap_txc_buffer(r).into();
+        let msg: String = self.read_free(r);
         if msg.chars().nth(17).unwrap() == 't' {
             // <result success=”true” ... />
             // .................^
@@ -450,7 +425,7 @@ impl LibTxc {
     {
         self.imp.set_callback(
             #[inline(always)]
-            move |p| callback(self.wrap_txc_buffer(p)),
+            move |p| callback(TxcBuff(p, &self.imp)),
         );
     }
 }
