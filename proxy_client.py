@@ -21,7 +21,6 @@ cmd.connect((addr, port))
 
 r = cmd.recv(32)
 dp = int.from_bytes(r, "little")
-print(r)
 print("< ", dp)
 
 print("connecting to data stream")
