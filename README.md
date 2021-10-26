@@ -36,6 +36,7 @@ make 64
 ```bash
 wine target/x86_64-pc-windows-gnu/release/example.exe
 ```
+Также см. [txcproxy прокси-сервер](https://github.com/2dav/txcproxy) для примера использования. 
 ### Rust API
 ##### Загрузка экземпляра библиотеки
 Конструктор `LibTxc::new` принимает аргументом путь к директории в которой
