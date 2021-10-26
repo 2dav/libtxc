@@ -152,6 +152,16 @@ impl From<LogLevel> for c_int {
     }
 }
 
+impl From<u8> for LogLevel {
+    fn from(me: u8) -> LogLevel {
+        match me {
+            1 => LogLevel::Minimum,
+            3 => LogLevel::Maximum,
+            _ => LogLevel::Default,
+        }
+    }
+}
+
 /// Интерфейс к коннектору.
 ///
 /// Содержит экземпляр динамически загруженной библиотеки.

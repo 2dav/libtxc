@@ -14,6 +14,9 @@ use winapi::um::winsock2::{
     INVALID_SOCKET, SOCKET, WSAPROTOCOL_INFOW, WSA_FLAG_OVERLAPPED,
 };
 
+const TXC_PROXY_FORK_ENV: &str = "__TXC_PROXY_FORK";
+const TXC_PROXY_LOG_LEVEL: &str = "TXC_PROXY_LOG_LEVEL";
+
 #[inline(always)]
 fn last_os_error() -> io::Error {
     io::Error::last_os_error()
@@ -39,10 +42,15 @@ fn load_lib() -> io::Result<LibTxc> {
 }
 
 fn init_lib(mut lib: LibTxc, id: u16, mut data_stream: TcpStream) -> io::Result<LibTxc> {
+    let log_level: LogLevel = match std::env::var(TXC_PROXY_LOG_LEVEL) {
+        Ok(s) => s.parse::<u8>().unwrap_or(1).into(),
+        _ => LogLevel::Minimum,
+    };
+
     let wd = std::env::current_dir()?;
     let log_dir = wd.join("sessions").join(id.to_string());
     std::fs::create_dir_all(log_dir.clone())?;
-    lib.initialize(log_dir, LogLevel::Minimum)?;
+    lib.initialize(log_dir, log_level)?;
     lib.set_callback(move |buff| data_stream.write_all(&*buff));
     Ok(lib)
 }
@@ -74,8 +82,6 @@ fn handle_conn(mut cmd_stream: TcpStream) -> io::Result<()> {
     }
     Ok(())
 }
-
-const TXC_PROXY_FORK_ENV: &str = "__TXC_PROXY_FORK";
 
 fn handler() -> io::Result<()> {
     // before using any winsock2 stuff it should be initialized(WSAStartup), let libstd handle this
