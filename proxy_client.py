@@ -1,6 +1,5 @@
 #!/bin/python
 import socket
-import sys
 from threading import Thread
 
 addr = socket.gethostbyname("127.0.0.1")
@@ -20,7 +19,9 @@ print("connecting to proxy server")
 cmd = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 cmd.connect((addr, port))
 
-dp = int.from_bytes(cmd.recv(32), "little")
+r = cmd.recv(32)
+dp = int.from_bytes(r, "little")
+print(r)
 print("< ", dp)
 
 print("connecting to data stream")
@@ -29,7 +30,7 @@ rcv.connect((addr, dp))
 
 def rcv_print_loop(rcv):
     while True:
-        b = rcv.recv(4096)
+        b = rcv.recv(1 << 20).decode()
         if b == b'':
             break
         print(b)

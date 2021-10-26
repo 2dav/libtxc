@@ -1,17 +1,30 @@
 use libtxc::{LibTxc, LogLevel};
-use std::io::{self, BufRead, BufReader, Write};
-use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
+use std::io::Read;
+use std::os::windows::io::{FromRawSocket, IntoRawSocket, RawSocket};
+use std::process::{Command, Stdio};
+use std::{
+    env,
+    io::{self, BufRead, BufReader, Write},
+    mem,
+    net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream},
+};
+
+use winapi::um::winsock2::{
+    closesocket, WSADuplicateSocketW, WSAGetLastError, WSASocketW, FROM_PROTOCOL_INFO, SOCKET,
+    WSAPROTOCOL_INFOW, WSA_FLAG_OVERLAPPED,
+};
 
 #[inline(always)]
 fn last_os_error() -> io::Error {
     io::Error::last_os_error()
 }
 
+#[inline(always)]
 fn bind(port: u16) -> std::io::Result<TcpListener> {
     TcpListener::bind(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port))
 }
 
-fn bind_random() -> Option<(u16, TcpListener)> {
+fn bind_any() -> Option<(u16, TcpListener)> {
     for port in 1025..65535 {
         if let Ok(listener) = bind(port) {
             return Some((port, listener));
@@ -20,58 +33,115 @@ fn bind_random() -> Option<(u16, TcpListener)> {
     None
 }
 
-fn init_lib(id: u16, mut data_stream: TcpStream) -> io::Result<LibTxc> {
+#[inline(always)]
+fn load_lib() -> io::Result<LibTxc> {
+    LibTxc::new(std::env::current_dir()?)
+}
+
+fn init_lib(mut lib: LibTxc, id: u16, mut data_stream: TcpStream) -> io::Result<LibTxc> {
     let wd = std::env::current_dir()?;
     let log_dir = wd.join("sessions").join(id.to_string());
-    let mut lib = LibTxc::new(wd)?;
-    println!("{}: библиотека загружена", id);
-
     std::fs::create_dir_all(log_dir.clone())?;
-    lib.initialize(log_dir.clone(), LogLevel::Minimum)?;
-    println!("{}: логи коннектора сохраняются в {:?}", id, log_dir);
+    lib.initialize(log_dir, LogLevel::Minimum)?;
     lib.set_callback(move |buff| data_stream.write_all(&*buff));
-
     Ok(lib)
 }
 
-fn handle_conn(mut cmd_stream: TcpStream) {
-    match bind_random()
+fn handle_conn(mut cmd_stream: TcpStream) -> io::Result<()> {
+    let lib = bind_any()
         .ok_or_else(last_os_error)
         .and_then(|(data_port, listener)| {
-            println!("{}: порт данных открыт, ожидаю подключение", data_port);
-            cmd_stream
-                // отправляем data port клиенту
+            // load here to fail early, in case
+            let lib = load_lib()?;
+            // send data port, wait for connection
+            let (ds, _) = cmd_stream
                 .write_all(&data_port.to_le_bytes())
-                // ожидаем подключения
-                .and_then(|_| listener.accept())
-                // инициализируем библиотеку
-                .and_then(|(data_stream, _)| init_lib(data_port, data_stream))
-                .map(|lib| (lib, data_port))
-        }) {
-        Ok((lib, id)) => {
-            println!("{}: инициализаця завершена, начинаю приём данных", id);
-            let mut reader = BufReader::new(cmd_stream.try_clone().unwrap());
-            let mut buff = Vec::with_capacity(1 << 20);
+                .and_then(|_| listener.accept())?;
+            ds.shutdown(std::net::Shutdown::Read)?;
+            init_lib(lib, data_port, ds)
+        })?;
 
-            while !matches!(reader.read_until(b'\0', &mut buff), Ok(0) | Err(_)) {
-                let resp = match lib.send_bytes(&buff) {
-                    Ok(resp) => resp,
-                    Err(e) => e.message,
-                };
-                if cmd_stream.write_all(resp.as_bytes()).is_err() {
-                    break;
-                }
-                buff.clear();
-            }
-            println!("{}: завершаю работу, корректно", id);
-        }
-        Err(e) => eprintln!("{}", e),
-    };
+    let mut reader = BufReader::new(cmd_stream.try_clone().unwrap());
+    let mut buff = Vec::with_capacity(1 << 20);
+
+    while !matches!(reader.read_until(b'\0', &mut buff), Ok(0) | Err(_)) {
+        let resp = match lib.send_bytes(&buff) {
+            Ok(resp) => resp,
+            Err(e) => e.message,
+        };
+        cmd_stream.write_all(resp.as_bytes())?;
+        buff.clear();
+    }
+    Ok(())
 }
 
-pub fn main() -> std::io::Result<()> {
+const TXC_PROXY_FORK_ENV: &str = "__TXC_PROXY_FORK";
+
+fn handler() -> io::Result<()> {
+    // before using any winsock2 stuff it should be initialized(WSAStartup), let libstd handle this
+    drop(std::net::TcpListener::bind("255.255.255.255:0"));
+
+    env::remove_var(TXC_PROXY_FORK_ENV);
+    // read socket info from stdin
+    let mut buff = Vec::with_capacity(mem::size_of::<WSAPROTOCOL_INFOW>());
+    std::io::stdin().read_to_end(&mut buff)?;
+    // reconstruct socket
+    let stream: TcpStream = unsafe {
+        let pi: &mut WSAPROTOCOL_INFOW = &mut *(buff.as_ptr() as *mut WSAPROTOCOL_INFOW);
+        let sock = WSASocketW(
+            FROM_PROTOCOL_INFO,
+            FROM_PROTOCOL_INFO,
+            FROM_PROTOCOL_INFO,
+            pi,
+            0,
+            WSA_FLAG_OVERLAPPED,
+        );
+        if sock == 0 {
+            return Err(io::Error::from_raw_os_error(WSAGetLastError()));
+        }
+        TcpStream::from_raw_socket(sock as RawSocket)
+    };
+    handle_conn(stream)
+}
+
+fn spawn_handler(stream: TcpStream) -> io::Result<()> {
+    // fork
+    let cmd = env::current_exe()?;
+    let mut child = Command::new(cmd)
+        .env(TXC_PROXY_FORK_ENV, "")
+        .current_dir(env::current_dir()?)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()?;
+    let pid = child.id();
+    let sin = child.stdin.as_mut().ok_or_else(last_os_error)?;
+
+    // duplicate socket
+    let raw_fd = stream.into_raw_socket();
+    let pl = unsafe {
+        let mut pi: WSAPROTOCOL_INFOW = mem::zeroed();
+        let rv = WSADuplicateSocketW(raw_fd as SOCKET, pid, &mut pi);
+        if rv != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("socket dup fail {}", rv),
+            ));
+        }
+        std::slice::from_raw_parts(
+            mem::transmute::<_, *const u8>(&pi),
+            mem::size_of::<WSAPROTOCOL_INFOW>(),
+        )
+    };
+    // send socket info to child's stdin
+    sin.write_all(pl)?;
+    // finally close our copy of the socket
+    unsafe { closesocket(raw_fd as SOCKET) };
+    Ok(())
+}
+
+fn server() -> io::Result<()> {
     let mut control_port = 5555;
-    for arg in std::env::args().rev() {
+    for arg in env::args().rev() {
         if let Ok(p) = arg.parse::<u16>() {
             control_port = p;
             break;
@@ -82,14 +152,21 @@ pub fn main() -> std::io::Result<()> {
         Ok(l) => Ok((control_port, l)),
         Err(e) => {
             eprintln!("127.0.0.1:{} bind error {}", control_port, e);
-            bind_random().ok_or_else(last_os_error)
+            bind_any().ok_or_else(last_os_error)
         }
     }?;
 
     println!("Сервер запущен на: {}", control_port);
     for conn in listener.incoming() {
-        let stream = conn?;
-        std::thread::spawn(move || handle_conn(stream));
+        conn.and_then(spawn_handler)?;
     }
     Ok(())
+}
+
+pub fn main() -> io::Result<()> {
+    if env::var(TXC_PROXY_FORK_ENV).is_ok() {
+        handler()
+    } else {
+        server()
+    }
 }
