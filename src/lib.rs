@@ -392,7 +392,7 @@ impl LibTxc {
     ///
     /// [`Error`] ошибкa, возвращённая библиотекой
     pub fn send_command<C: AsRef<str>>(&self, command: C) -> Result<String, Error> {
-        self.send_bytes(ffi::to_cstring(command).as_bytes())
+        self.send_bytes(ffi::to_cstring(command).as_bytes_with_nul())
     }
 
     /// В отличие от [`LibTxc::send_command()`], принимает байты в качестве аргумента.
