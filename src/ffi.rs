@@ -1,19 +1,33 @@
-use std::ffi::{CStr, CString, OsStr};
-use std::os::windows::prelude::OsStrExt;
-use std::result::Result;
+use std::os::{
+    raw::{c_int, c_void},
+    windows::prelude::OsStrExt,
+};
+use std::{
+    ffi::{CStr, CString, OsStr},
+    mem::transmute,
+    result::Result,
+};
+use winapi::{
+    shared::minwindef::{FARPROC, HMODULE},
+    um::{errhandlingapi as er, libloaderapi as ll},
+};
 
-use std::os::raw::{c_int, c_void};
-use winapi::shared::minwindef::{FARPROC, HMODULE};
-use winapi::um::{errhandlingapi as er, libloaderapi as ll};
+type Initialize = unsafe extern "C" fn(*const u8, c_int) -> *const u8;
+type SetLogLevel = unsafe extern "C" fn(c_int) -> *const u8;
+type SendCommand = unsafe extern "C" fn(*const u8) -> *const u8;
+type FreeMemory = unsafe extern "C" fn(*const u8) -> bool;
+type UnInitialize = unsafe extern "C" fn() -> *const u8;
+type CallbackEx = extern "C" fn(*const u8, *mut c_void) -> bool;
+type SetCallbackEx = unsafe extern "C" fn(CallbackEx, *const c_void) -> bool;
 
 pub(crate) struct Lib {
     handle: HMODULE,
-    _initialize: FARPROC,
-    _set_log_level: FARPROC,
-    _send_command: FARPROC,
-    _set_callback_ex: FARPROC,
-    _free_memory: FARPROC,
-    _uninitialize: FARPROC,
+    _initialize: Initialize,
+    _set_log_level: SetLogLevel,
+    _send_command: SendCommand,
+    _set_callback_ex: SetCallbackEx,
+    _free_memory: FreeMemory,
+    _uninitialize: UnInitialize,
 }
 
 pub(crate) unsafe fn load<P: AsRef<OsStr>>(path: P) -> Result<Lib, std::io::Error> {
@@ -48,23 +62,15 @@ pub(crate) unsafe fn load<P: AsRef<OsStr>>(path: P) -> Result<Lib, std::io::Erro
 
         Ok(Lib {
             handle: h,
-            _initialize: initialize,
-            _set_log_level: set_loglevel,
-            _send_command: send_command,
-            _set_callback_ex: set_cb_ex,
-            _free_memory: free_mem,
-            _uninitialize: uninitialize,
+            _initialize: transmute(initialize),
+            _set_log_level: transmute(set_loglevel),
+            _send_command: transmute(send_command),
+            _set_callback_ex: transmute(set_cb_ex),
+            _free_memory: transmute(free_mem),
+            _uninitialize: transmute(uninitialize),
         })
     })
 }
-
-type Initialize = unsafe extern "C" fn(*const u8, c_int) -> *const u8;
-type SetLogLevel = unsafe extern "C" fn(c_int) -> *const u8;
-type SendCommand = unsafe extern "C" fn(*const u8) -> *const u8;
-type FreeMemory = unsafe extern "C" fn(*const u8) -> bool;
-type UnInitialize = unsafe extern "C" fn() -> *const u8;
-type CallbackEx = extern "C" fn(*const u8, *mut c_void) -> bool;
-type SetCallbackEx = unsafe extern "C" fn(CallbackEx, *const c_void) -> bool;
 
 #[no_mangle]
 extern "C" fn txc_callback_ex(p: *const u8, ctx: *mut c_void) -> bool {
@@ -75,33 +81,28 @@ extern "C" fn txc_callback_ex(p: *const u8, ctx: *mut c_void) -> bool {
 
 impl Lib {
     #[inline(always)]
-    unsafe fn pcast<T>(&self, p: &FARPROC) -> &T {
-        &*(p as *const *mut _ as *const T)
-    }
-
-    #[inline(always)]
     pub fn initialize(&self, path: &CStr, log_level: c_int) -> *const u8 {
-        unsafe { self.pcast::<Initialize>(&self._initialize)(path.as_ptr().cast(), log_level) }
+        unsafe { (self._initialize)(path.as_ptr().cast(), log_level) }
     }
 
     #[inline(always)]
     pub fn set_log_level(&self, log_level: c_int) -> *const u8 {
-        unsafe { self.pcast::<SetLogLevel>(&self._set_log_level)(log_level) }
+        unsafe { (self._set_log_level)(log_level) }
     }
 
     #[inline(always)]
     pub fn send_bytes(&self, cmd: &[u8]) -> *const u8 {
-        unsafe { self.pcast::<SendCommand>(&self._send_command)(cmd.as_ptr()) }
+        unsafe { (self._send_command)(cmd.as_ptr()) }
     }
 
     #[inline(always)]
     pub fn free_memory(&self, pbuff: *const u8) -> bool {
-        unsafe { self.pcast::<FreeMemory>(&self._free_memory)(pbuff) }
+        unsafe { (self._free_memory)(pbuff) }
     }
 
     #[inline(always)]
     pub fn uninitialize(&self) -> *const u8 {
-        unsafe { self.pcast::<UnInitialize>(&self._uninitialize)() }
+        unsafe { (self._uninitialize)() }
     }
 
     #[inline(always)]
@@ -111,12 +112,7 @@ impl Lib {
     {
         // double indirection needed to get a c_void compatible pointer from trait object pointer
         let ctx: Box<Box<dyn FnMut(*const u8) -> R>> = Box::new(Box::new(callback));
-        unsafe {
-            self.pcast::<SetCallbackEx>(&self._set_callback_ex)(
-                txc_callback_ex,
-                Box::into_raw(ctx) as *mut c_void,
-            )
-        }
+        unsafe { (self._set_callback_ex)(txc_callback_ex, Box::into_raw(ctx) as *mut c_void) }
     }
 }
 
