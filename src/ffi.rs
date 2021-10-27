@@ -105,7 +105,7 @@ impl Lib {
         unsafe { (self._uninitialize)() }
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn set_callback<F, R>(&self, callback: F) -> bool
     where
         F: FnMut(*const u8) -> R,

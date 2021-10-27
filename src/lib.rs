@@ -289,7 +289,7 @@ impl LibTxc {
     }
 
     // convert to-string and free buffer. To be used in slow path.
-    #[inline(always)]
+    #[inline]
     fn read_free(&self, p: *const u8) -> String {
         let msg = unsafe { CStr::from_ptr(p.cast()) }
             .to_string_lossy()
