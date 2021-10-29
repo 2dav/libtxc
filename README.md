@@ -22,7 +22,7 @@ cargo doc --no-deps --open
 cargo run --release --bin example
 ```
 ##### Кросс-компиляция и запуск под wine
-Установка необходимых toolchain.
+Для сборки понадобятся [MinGW-w64](https://www.mingw-w64.org) и rust toolchain'ы
 ```bash
 rustup target add x86_64-pc-windows-gnu
 rustup target add i686-pc-windows-gnu
@@ -33,6 +33,7 @@ cargo build --release --target x86_64-pc-windows-gnu
 # или
 make 64
 ```
+Запуск примера под Wine
 ```bash
 wine target/x86_64-pc-windows-gnu/release/example.exe
 ```
