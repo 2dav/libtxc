@@ -75,6 +75,7 @@
 
 mod ffi;
 
+use log::{trace, warn};
 use std::ffi::CStr;
 use std::marker::PhantomData;
 use std::ops::Deref;
@@ -216,11 +217,10 @@ pub struct TxcBuff<'a>(*const u8, &'a ffi::Lib);
 
 impl Drop for TxcBuff<'_> {
     fn drop(&mut self) {
-        // FreeMemory() == false с живым буфером недокументированная ситуация
-        assert!(
-            self.1.free_memory(self.0),
-            "Операция очистки txc буфера FreeMemory(*) завершилась неудачно."
-        );
+        if !self.1.free_memory(self.0) {
+            // FreeMemory() == false с живым буфером недокументированная ситуация
+            warn!("Операция очистки txc буфера FreeMemory(*) завершилась неудачно.");
+        }
     }
 }
 
@@ -241,7 +241,9 @@ impl Deref for TxcBuff<'_> {
 
 impl From<TxcBuff<'_>> for String {
     fn from(buff: TxcBuff) -> Self {
-        buff.as_ref().to_string_lossy().to_string()
+        let r = buff.as_ref();
+        trace!("to_string([u8;{}])", r.to_bytes().len());
+        r.to_string_lossy().to_string()
     }
 }
 
@@ -288,7 +290,7 @@ impl LibTxc {
         })
     }
 
-    // convert to-string and free buffer. To be used in slow path.
+    // convert to-string and than free the buffer. To be used in slow path.
     #[inline]
     fn read_free(&self, p: *const u8) -> String {
         let msg = unsafe { CStr::from_ptr(p.cast()) }

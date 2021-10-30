@@ -1,3 +1,4 @@
+use log::{info, trace, warn};
 use std::os::{
     raw::{c_int, c_void},
     windows::prelude::OsStrExt,
@@ -21,7 +22,7 @@ type CallbackEx = extern "C" fn(*const u8, *mut c_void) -> bool;
 type SetCallbackEx = unsafe extern "C" fn(CallbackEx, *const c_void) -> bool;
 
 pub(crate) struct Lib {
-    handle: HMODULE,
+    pub(crate) handle: HMODULE,
     _initialize: Initialize,
     _set_log_level: SetLogLevel,
     _send_command: SendCommand,
@@ -31,6 +32,7 @@ pub(crate) struct Lib {
 }
 
 pub(crate) unsafe fn load<P: AsRef<OsStr>>(path: P) -> Result<Lib, std::io::Error> {
+    info!("Loading library {}", path.as_ref().to_string_lossy());
     let wide_filename: Vec<u16> = path.as_ref().encode_wide().chain(Some(0)).collect();
     let mut prev_mode = 0;
     er::SetThreadErrorMode(1, &mut prev_mode);
@@ -45,6 +47,7 @@ pub(crate) unsafe fn load<P: AsRef<OsStr>>(path: P) -> Result<Lib, std::io::Erro
     er::SetThreadErrorMode(prev_mode, std::ptr::null_mut());
     drop(wide_filename);
     handle.and_then(|h| {
+        info!("Library loaded {}", h as usize);
         unsafe fn paddr(h: HMODULE, f: &[u8]) -> Result<FARPROC, std::io::Error> {
             let s = ll::GetProcAddress(h, f.as_ptr().cast());
             if s.is_null() {
@@ -82,26 +85,31 @@ extern "C" fn txc_callback_ex(p: *const u8, ctx: *mut c_void) -> bool {
 impl Lib {
     #[inline(always)]
     pub fn initialize(&self, path: &CStr, log_level: c_int) -> *const u8 {
+        trace!("txc::initialize");
         unsafe { (self._initialize)(path.as_ptr().cast(), log_level) }
     }
 
     #[inline(always)]
     pub fn set_log_level(&self, log_level: c_int) -> *const u8 {
+        trace!("txc::set_log_level");
         unsafe { (self._set_log_level)(log_level) }
     }
 
     #[inline(always)]
     pub fn send_bytes(&self, cmd: &[u8]) -> *const u8 {
+        trace!("txc::send_bytes {}", cmd.len());
         unsafe { (self._send_command)(cmd.as_ptr()) }
     }
 
     #[inline(always)]
     pub fn free_memory(&self, pbuff: *const u8) -> bool {
+        trace!("txc::free_memory {}", pbuff as usize);
         unsafe { (self._free_memory)(pbuff) }
     }
 
     #[inline(always)]
     pub fn uninitialize(&self) -> *const u8 {
+        trace!("txc::uninitialize {}", self.handle as usize);
         unsafe { (self._uninitialize)() }
     }
 
@@ -110,6 +118,7 @@ impl Lib {
     where
         F: FnMut(*const u8) -> R,
     {
+        trace!("txc::set_callback");
         // double indirection needed to get a c_void compatible pointer from trait object pointer
         let ctx: Box<Box<dyn FnMut(*const u8) -> R>> = Box::new(Box::new(callback));
         unsafe { (self._set_callback_ex)(txc_callback_ex, Box::into_raw(ctx) as *mut c_void) }
@@ -119,7 +128,11 @@ impl Lib {
 impl Drop for Lib {
     fn drop(&mut self) {
         unsafe {
-            ll::FreeLibrary(self.handle);
+            info!("FreeLibrary {}", self.handle as usize);
+            let res = ll::FreeLibrary(self.handle);
+            if res != 0 {
+                warn!("Library {} unload fail {}", self.handle as usize, res);
+            }
         }
     }
 }
@@ -127,5 +140,6 @@ impl Drop for Lib {
 // Converts rust string to c-string(i.e. memcopy + null terminator)
 #[inline(always)]
 pub(crate) fn to_cstring<S: AsRef<str>>(rstr: S) -> CString {
+    trace!("to_cstring([&str; {}])", rstr.as_ref().len());
     CString::new(rstr.as_ref().as_bytes()).unwrap()
 }
