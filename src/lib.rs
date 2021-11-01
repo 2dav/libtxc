@@ -168,6 +168,7 @@ impl From<u8> for LogLevel {
 /// Содержит экземпляр динамически загруженной библиотеки.
 /// - `!Sync` + `!Send` не может быть передан между потоками
 /// - остановка коннектора, выгрузка библиотеки и освобождение ресурсов происходят в деструкторе [`Drop`]
+#[repr(transparent)]
 pub struct LibTxc {
     imp: ffi::Lib,
     _marker: PhantomData<*const ()>, // !Sync + !Send
