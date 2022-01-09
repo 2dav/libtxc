@@ -415,13 +415,12 @@ impl LibTxc {
         let msg: String = self.read_free(r);
         if msg.chars().nth(17).unwrap() == 't' {
             // <result success=”true” ... />
-            // .................^
+            // _________________^
             Ok(msg)
         } else {
             // <result success=”false”>
             //  <message>error message</message>
             // </result>
-            //
             // <error> Текст сообщения об ошибке</error>
             let cmd = unsafe { std::str::from_utf8_unchecked(pl) };
             egeneric!("SendCommand", [cmd], msg)
