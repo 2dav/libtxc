@@ -106,20 +106,28 @@ impl fmt::Display for Error {
     }
 }
 
+// counts the number of expanded elements, compiles to const expression
+macro_rules! count {
+    () => (0usize);
+    ( $x:tt $($xs:tt)* ) => (1usize + count!($($xs)*));
+}
+// helper simplifying `Error` creation with varying arguments
 macro_rules! egeneric {
     ($method:expr, $msg:expr) => {
-        egeneric!($method, [], $msg)
+        egeneric!($method, "", $msg)
     };
     ($method:expr, [$($args:ident),*], $msg:expr) => {{
-        #[allow(unused_mut)]
-        let mut name_value = Vec::<String>::new();
+        let mut name_value = Vec::<String>::with_capacity(count!($($args)*));
         $(name_value.push(format!("{}: {:?}", stringify!($args), $args));)*
+        egeneric!($method, name_value.join(", "), $msg)
+    }};
+    ($method:expr, $args:expr, $msg:expr) => {
         Err(Error {
             method: format!("{}", $method),
-            args: name_value.join(", "),
+            args: format!("{}", $args),
             message: format!("{}", $msg),
         })
-    }};
+    };
 }
 
 /// Глубина логирования в соответствии с детализацией и размером лог-файла
