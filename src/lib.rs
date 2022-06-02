@@ -484,9 +484,9 @@ impl LibTxc {
     /// будет принимать асинхронные информационные сообщения от Коннектора.
     ///
     /// * `callback` - функция обратного вызова
-    pub fn set_callback<F, R>(&self, mut callback: F)
+    pub fn set_callback<F>(&self, mut callback: F)
     where
-        F: FnMut(TxcBuff) -> R,
+        F: FnMut(TxcBuff),
     {
         trace!(self.log, "txc::set_callback");
         self.imp.set_callback(
