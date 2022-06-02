@@ -75,7 +75,7 @@
 
 mod ffi;
 
-use log::{trace, warn};
+use slog::{info, o, trace, warn, Drain};
 use std::ffi::CStr;
 use std::marker::PhantomData;
 use std::ops::Deref;
@@ -172,15 +172,15 @@ impl From<u8> for LogLevel {
 /// Содержит экземпляр динамически загруженной библиотеки.
 /// - `!Sync` + `!Send` не может быть передан между потоками
 /// - остановка коннектора, выгрузка библиотеки и освобождение ресурсов происходят в деструкторе [`Drop`]
-#[repr(transparent)]
 pub struct LibTxc {
     imp: ffi::Lib,
+    log: slog::Logger,
     _marker: PhantomData<*const ()>, // !Sync + !Send
 }
 
 impl Default for LibTxc {
     fn default() -> Self {
-        LibTxc::new(env::current_dir().unwrap()).unwrap()
+        LibTxc::new(env::current_dir().unwrap(), None).unwrap()
     }
 }
 
@@ -219,14 +219,15 @@ impl Drop for LibTxc {
 /// // raw bytes
 /// let msg: &[u8] = &*buff;
 /// ```
-pub struct TxcBuff<'a>(*const u8, &'a ffi::Lib);
+pub struct TxcBuff<'a>(*const u8, &'a ffi::Lib, slog::Logger);
 
 impl Drop for TxcBuff<'_> {
     #[inline]
     fn drop(&mut self) {
+        trace!(self.2, "txc::free_memory");
         if !self.1.free_memory(self.0) {
             // FreeMemory() == false с живым буфером недокументированная ситуация
-            warn!("Операция очистки txc буфера FreeMemory(*) завершилась неудачно.");
+            warn!(self.2, "Операция очистки txc буфера FreeMemory(*) завершилась неудачно.");
         }
     }
 }
@@ -252,7 +253,7 @@ impl From<TxcBuff<'_>> for String {
     #[inline]
     fn from(buff: TxcBuff) -> Self {
         let r = buff.as_ref();
-        trace!("to_string([u8;{}])", r.to_bytes().len());
+        trace!(buff.2, "to_string([u8;{}])", r.to_bytes().len());
         r.to_string_lossy().to_string()
     }
 }
@@ -299,10 +300,23 @@ impl LibTxc {
     /// let dll_search_dir:PathBuf = ["path", "to", "txmlconnector_dll", "directory"].iter().collect();
     /// let lib = LibTxc::new(dll_search_dir).unwrap();
     /// ```
-    pub fn new(dll_dir: PathBuf) -> Result<Self, std::io::Error> {
-        lib_path(dll_dir)
-            .and_then(|path| unsafe { ffi::load(path) })
-            .map(|lib| LibTxc { imp: lib, _marker: PhantomData })
+    pub fn new<L: Into<Option<slog::Logger>>>(
+        dll_dir: PathBuf,
+        log: L,
+    ) -> Result<Self, std::io::Error> {
+        let log =
+            log.into().unwrap_or_else(|| slog::Logger::root(slog_stdlog::StdLog.fuse(), o!()));
+        let imp = lib_path(dll_dir).and_then(|path| {
+            info!(log, "Loading library {}", path.to_str().unwrap());
+            unsafe { ffi::load(path) }
+        })?;
+        let lib = LibTxc { imp, log, _marker: PhantomData };
+        Ok(lib)
+    }
+
+    #[inline]
+    fn as_buff(&self, p: *const u8) -> TxcBuff {
+        TxcBuff(p, &self.imp, self.log.clone())
     }
 
     #[inline]
@@ -310,9 +324,7 @@ impl LibTxc {
         if p.is_null() {
             None
         } else {
-            // Converts to `String` and frees the underlying buffer
-            let msg = TxcBuff(p, &self.imp).into();
-            Some(msg)
+            Some(self.as_buff(p).into())
         }
     }
 
@@ -356,6 +368,8 @@ impl LibTxc {
         }
 
         let c_log_path = ffi::to_cstring(log_path.display().to_string());
+
+        trace!(self.log, "txc::initialize");
         let r = self.imp.initialize(c_log_path.as_c_str(), log_level.into());
         self.errmsg(r)
             .map(|msg| egeneric!("Initialize", [log_path, log_level], msg))
@@ -373,6 +387,7 @@ impl LibTxc {
     ///
     /// [`Error`] ошибкa, возвращённая библиотекой
     pub fn uninitialize(&self) -> Result<(), Error> {
+        trace!(self.log, "txc::uninitialize");
         self.errmsg(self.imp.uninitialize())
             .map(|msg| egeneric!("UnInitialize", msg))
             .unwrap_or(Ok(()))
@@ -385,6 +400,7 @@ impl LibTxc {
     ///
     /// [`Error`] ошибкa, возвращённая библиотекой
     pub fn set_loglevel(&self, log_level: LogLevel) -> Result<(), Error> {
+        trace!(self.log, "txc::set_log_level");
         self.errmsg(self.imp.set_log_level(log_level.into()))
             .map(|msg| egeneric!("SetLogLevel", [log_level], msg))
             .unwrap_or(Ok(()))
@@ -426,16 +442,15 @@ impl LibTxc {
         }
 
         let r = self.imp.send_bytes(pl);
-        let msg: String = TxcBuff(r, &self.imp).into();
+        let msg: String = self.as_buff(r).into();
+        /* returned message might come in three forms:
+         * Success:   <result success=”true” ... />
+         * Error:     <result success=”false”>...</result>
+         * Exception: <error>...</error>
+         */
         if msg.chars().nth(17).unwrap() == 't' {
-            // <result success=”true” ... />
-            // _________________^
             Ok(msg)
         } else {
-            // <result success=”false”>
-            //  <message>error message</message>
-            // </result>
-            // <error> Текст сообщения об ошибке</error>
             let cmd = unsafe { std::str::from_utf8_unchecked(pl) };
             egeneric!("SendCommand", [cmd], msg)
         }
@@ -449,9 +464,10 @@ impl LibTxc {
     where
         F: FnMut(TxcBuff) -> R,
     {
+        trace!(self.log, "txc::set_callback");
         self.imp.set_callback(
             #[inline(always)]
-            move |p| callback(TxcBuff(p, &self.imp)),
+            move |p| callback(self.as_buff(p)),
         );
     }
 }
