@@ -12,16 +12,15 @@
 //! - корректное отключение, остановка коннектора и освобождение ресурсов
 //!
 //!
-//! ```
-//! ##### Загрузка экземпляра библиотеки
-//! см. [`LibTxc::new()`]
 //!
-//! Конструктор `LibTxc::new` принимает аргументом путь к директории в которой
-//! находится txmlconnector(64).dll.
+//! ##### Загрузка экземпляра библиотеки
+//! Конструктор [`LibTxc::new`] принимает аргументом путь к директории в которой
+//! находится txmlconnector(64).dll и необязательный параметр экземпляр [slog](https://docs.rs/slog/latest/slog) логгера.
 //!
 //! Название файлa библиотеки
 //! - для i686   - `txmlconnector.dll`
 //! - для x86_64 - `txmlconnector64.dll`
+//!
 //! ```
 //! use libtxc::LibTxc;
 //! use std::env;
@@ -29,12 +28,13 @@
 //! fn main() -> Result<()>{
 //!     // Загрузить txmlconnector(64).dll из текущей директории
 //!     let dll_search_dir = env::current_dir()?;
-//!     let lib = LibTxc::new(dll_search_dir)?;
+//!     let lib = LibTxc::new(dll_search_dir, None)?;
 //!     // аналогично
 //!     let lib: LibTxc = Default::default();
 //!     Ok(())
 //! }
 //! ```
+//!
 //! ##### Установка обработчика входящих сообщений
 //! см. [`LibTxc::set_callback()`]
 //! ```
@@ -284,6 +284,8 @@ fn lib_path(mut dir: PathBuf) -> Result<PathBuf, std::io::Error> {
 impl LibTxc {
     /// Загружает библиотеку в пространство текущего процесса
     /// * `dll_dir` - путь к директории в которой находится txmlconnector(64).dll
+    /// * `log`     - экземпляр [slog](https://docs.rs/slog/latest/slog) логгера, необязательный
+    /// параметр
     ///
     /// Название файлa библиотеки
     /// - для i686   - `txmlconnector.dll`
@@ -299,14 +301,14 @@ impl LibTxc {
     /// // аналогично
     /// use std::env;
     /// let dll_search_dir = env::current_dir().unwrap();
-    /// let lib = LibTxc::new(dll_search_dir).unwrap();
+    /// let lib = LibTxc::new(dll_search_dir, None).unwrap();
     /// ```
     /// ```
     /// use libtxc::LibTxc;
     /// use std::path::PathBuf;
     ///
     /// let dll_search_dir:PathBuf = ["path", "to", "txmlconnector_dll", "directory"].iter().collect();
-    /// let lib = LibTxc::new(dll_search_dir).unwrap();
+    /// let lib = LibTxc::new(dll_search_dir, None).unwrap();
     /// ```
     pub fn new<L: Into<Option<slog::Logger>>>(
         dll_dir: PathBuf,
