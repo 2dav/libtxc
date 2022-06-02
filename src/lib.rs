@@ -330,7 +330,10 @@ impl LibTxc {
     ///
     /// [`Error`] ошибкa, возвращённая библиотекой
     pub fn initialize(&mut self, log_path: PathBuf, log_level: LogLevel) -> Result<(), Error> {
-        assert!(log_path.exists(), "{:?} not exists", log_path);
+        if !log_path.exists() {
+            return egeneric!("Initialize", [log_path], "директория не существует или недоступна");
+        }
+
         let c_log_path = ffi::to_cstring(log_path.display().to_string());
         let r = self.imp.initialize(c_log_path.as_c_str(), log_level.into());
         self.errmsg(r)
@@ -391,7 +394,16 @@ impl LibTxc {
     /// Если последний байт отличаетсся от \0.
     pub fn send_bytes<C: AsRef<[u8]>>(&self, command: C) -> Result<String, Error> {
         let pl = command.as_ref();
-        assert_eq!(pl.last().unwrap(), &b'\0', "Данные должны иметь завершающий \0");
+
+        if pl.is_empty() || pl.last().unwrap().ne(&b'\0') {
+            let cmd = unsafe { std::str::from_utf8_unchecked(pl) };
+            return egeneric!(
+                "SendCommand",
+                [cmd],
+                "Данные для отправки должны иметь завершающий \0"
+            );
+        }
+
         let r = self.imp.send_bytes(pl);
         let msg: String = TxcBuff(r, &self.imp).into();
         if msg.chars().nth(17).unwrap() == 't' {
