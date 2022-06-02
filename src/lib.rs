@@ -77,6 +77,7 @@ mod ffi;
 
 use slog::{info, o, trace, warn, Drain};
 use std::ffi::CStr;
+use std::fmt::Display;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::os::raw::c_int;
@@ -255,6 +256,13 @@ impl From<TxcBuff<'_>> for String {
         let r = buff.as_ref();
         trace!(buff.2, "to_string([u8;{}])", r.to_bytes().len());
         r.to_string_lossy().to_string()
+    }
+}
+
+impl Display for TxcBuff<'_> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_ref().to_string_lossy())
     }
 }
 
