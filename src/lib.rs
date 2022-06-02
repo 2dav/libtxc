@@ -123,38 +123,29 @@ macro_rules! egeneric {
         egeneric!($method, Some(name_value.join(", ")), $msg)
     }};
     ($method:expr, $args:expr, $msg:expr) => {
-        Err(Error {
+        Error {
             method: format!("{}", $method),
             args: $args,
             message: format!("{}", $msg),
-        })
+        }
     };
 }
 
 /// Глубина логирования в соответствии с детализацией и размером лог-файла
 #[derive(Debug, Clone, Copy)]
+#[repr(i32)]
 pub enum LogLevel {
     /// минимальный
-    Minimum,
+    Minimum = 1,
     /// стандартный(по-умолчанию)
-    Default,
+    Default = 2,
     /// максимальный
-    Maximum,
+    Maximum = 3,
 }
 
 impl Default for LogLevel {
     fn default() -> Self {
         LogLevel::Default
-    }
-}
-
-impl From<LogLevel> for c_int {
-    fn from(me: LogLevel) -> c_int {
-        match me {
-            LogLevel::Minimum => 1,
-            LogLevel::Default => 2,
-            LogLevel::Maximum => 3,
-        }
     }
 }
 
@@ -329,26 +320,12 @@ impl LibTxc {
     ) -> Result<Self, std::io::Error> {
         let log =
             log.into().unwrap_or_else(|| slog::Logger::root(slog_stdlog::StdLog.fuse(), o!()));
-        let imp = lib_path(dll_dir).and_then(|path| {
-            info!(log, "Loading library {}", path.to_str().unwrap());
-            unsafe { ffi::load(path) }
-        })?;
-        let lib = LibTxc { imp, log, _marker: PhantomData };
-        Ok(lib)
-    }
-
-    #[inline]
-    fn as_buff(&self, p: *const u8) -> TxcBuff {
-        TxcBuff(p, self)
-    }
-
-    #[inline]
-    fn errmsg(&self, p: *const u8) -> Option<String> {
-        if p.is_null() {
-            None
-        } else {
-            Some(self.as_buff(p).into())
-        }
+        lib_path(dll_dir)
+            .and_then(|path| {
+                info!(log, "Loading library {}", path.to_str().unwrap());
+                unsafe { ffi::load(path) }
+            })
+            .map(|imp| LibTxc { imp, log, _marker: PhantomData })
     }
 
     /// Bыполняет инициализацию библиотеки: запускает поток обработки очереди
@@ -387,16 +364,19 @@ impl LibTxc {
     /// [`Error`] ошибкa, возвращённая библиотекой
     pub fn initialize(&mut self, log_path: PathBuf, log_level: LogLevel) -> Result<(), Error> {
         if !log_path.exists() {
-            return egeneric!("Initialize", [log_path], "директория не существует или недоступна");
+            return Err(egeneric!(
+                "Initialize",
+                [log_path],
+                "директория не существует или недоступна"
+            ));
         }
 
         let c_log_path = ffi::to_cstring(log_path.display().to_string());
 
         trace!(self.log, "txc::initialize");
-        let r = self.imp.initialize(c_log_path.as_c_str(), log_level.into());
-        self.errmsg(r)
-            .map(|msg| egeneric!("Initialize", [log_path, log_level], msg))
-            .unwrap_or(Ok(()))
+        self.imp
+            .initialize(c_log_path.as_c_str(), log_level as c_int)
+            .map_err(|msg| egeneric!("Initialize", [log_path, log_level], msg))
     }
 
     /// Выполняет остановку внутренних потоков библиотеки, в том числе завершает
@@ -411,9 +391,7 @@ impl LibTxc {
     /// [`Error`] ошибкa, возвращённая библиотекой
     pub fn uninitialize(&self) -> Result<(), Error> {
         trace!(self.log, "txc::uninitialize");
-        self.errmsg(self.imp.uninitialize())
-            .map(|msg| egeneric!("UnInitialize", msg))
-            .unwrap_or(Ok(()))
+        self.imp.uninitialize().map_err(|msg| egeneric!("UnInitialize", msg))
     }
 
     /// Изменяет уровень логирования без остановки библиотеки.
@@ -424,9 +402,9 @@ impl LibTxc {
     /// [`Error`] ошибкa, возвращённая библиотекой
     pub fn set_loglevel(&self, log_level: LogLevel) -> Result<(), Error> {
         trace!(self.log, "txc::set_log_level");
-        self.errmsg(self.imp.set_log_level(log_level.into()))
-            .map(|msg| egeneric!("SetLogLevel", [log_level], msg))
-            .unwrap_or(Ok(()))
+        self.imp
+            .set_log_level(log_level as c_int)
+            .map_err(|msg| egeneric!("SetLogLevel", [log_level], msg))
     }
 
     /// Служит для передачи команд Коннектору.
@@ -458,26 +436,17 @@ impl LibTxc {
         #[cfg(not(feature = "unchecked"))]
         if pl.is_empty() || pl.last().unwrap().ne(&b'\0') {
             let cmd = unsafe { std::str::from_utf8_unchecked(pl) };
-            return egeneric!(
+            return Err(egeneric!(
                 "SendCommand",
                 [cmd],
                 "Данные для отправки должны иметь завершающий \0"
-            );
+            ));
         }
 
-        let r = self.imp.send_bytes(pl);
-        let msg: String = self.as_buff(r).into();
-        /* returned message might come in three forms:
-         * Success:   <result success=”true” ... />
-         * Error:     <result success=”false”>...</result>
-         * Exception: <error>...</error>
-         */
-        if msg.chars().nth(17).unwrap() == 't' {
-            Ok(msg)
-        } else {
+        self.imp.send_bytes(pl).map_err(|err| {
             let cmd = unsafe { std::str::from_utf8_unchecked(pl) };
-            egeneric!("SendCommand", [cmd], msg)
-        }
+            egeneric!("SendCommand", [cmd], err)
+        })
     }
 
     /// Устанавливает функцию обратного вызова, которая
@@ -491,7 +460,7 @@ impl LibTxc {
         trace!(self.log, "txc::set_callback");
         self.imp.set_callback(
             #[inline(always)]
-            move |p| callback(self.as_buff(p)),
+            move |p| callback(TxcBuff(p, self)),
         );
     }
 }

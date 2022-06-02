@@ -90,35 +90,60 @@ extern "C" fn txc_callback_ex(p: *const u8, ctx: *mut c_void) -> bool {
     true
 }
 
+macro_rules! ok_or_err {
+    ($this:expr, $f:expr, $($args:expr),*) => {{
+        let p = unsafe { ($f)($($args),*) };
+        if p.is_null() {
+            Ok(())
+        } else {
+            let m = to_rstring(p);
+            $this.free_memory(p);
+            Err(m)
+        }
+    }};
+}
+
 impl Lib {
     /// txc::Initialize
     #[inline]
-    pub fn initialize(&self, path: &CStr, log_level: c_int) -> *const u8 {
-        unsafe { (self._initialize)(path.as_ptr().cast(), log_level) }
+    pub fn initialize(&self, path: &CStr, log_level: c_int) -> Result<(), String> {
+        ok_or_err!(self, self._initialize, path.as_ptr().cast(), log_level)
     }
 
     /// txc::SetLogLevel
     #[inline]
-    pub fn set_log_level(&self, log_level: c_int) -> *const u8 {
-        unsafe { (self._set_log_level)(log_level) }
+    pub fn set_log_level(&self, log_level: c_int) -> Result<(), String> {
+        ok_or_err!(self, self._set_log_level, log_level)
+    }
+
+    /// txc::UnInitialize
+    #[inline]
+    pub fn uninitialize(&self) -> Result<(), String> {
+        ok_or_err!(self, self._uninitialize,)
     }
 
     /// txc::SendCommand
     #[inline]
-    pub fn send_bytes(&self, cmd: &[u8]) -> *const u8 {
-        unsafe { (self._send_command)(cmd.as_ptr()) }
+    pub fn send_bytes(&self, cmd: &[u8]) -> Result<String, String> {
+        /* connector response might come in three forms:
+         * Success:   <result success=”true” ... />
+         * Error:     <result success=”false”>...</result>
+         * Exception: <error>...</error>
+         */
+        let p = unsafe { (self._send_command)(cmd.as_ptr()) };
+        let result = to_rstring(p);
+        self.free_memory(p);
+        if result.chars().nth(17).unwrap() == 't' {
+            Ok(result)
+        } else {
+            Err(result)
+        }
     }
 
     /// txc::FreeMemory
     #[inline]
     pub fn free_memory(&self, pbuff: *const u8) -> bool {
         unsafe { (self._free_memory)(pbuff) }
-    }
-
-    /// txc::UnInitialize
-    #[inline]
-    pub fn uninitialize(&self) -> *const u8 {
-        unsafe { (self._uninitialize)() }
     }
 
     /// txc::SetCallback
@@ -153,7 +178,20 @@ impl Drop for Lib {
     }
 }
 
-// Converts rust string to c-string(i.e. memcopy + null terminator)
+// Converts C-String pointer to Rust String
+#[inline]
+fn to_rstring(p: *const u8) -> String {
+    #[cfg(feature = "unchecked")]
+    unsafe {
+        String::from_utf8_unchecked(CStr::from_ptr(p.cast()).to_bytes().to_vec())
+    }
+    #[cfg(not(feature = "unchecked"))]
+    unsafe {
+        CStr::from_ptr(p.cast()).to_string_lossy().to_string()
+    }
+}
+
+// Converts Rust String to C compatible String
 #[inline]
 pub(crate) fn to_cstring<S: AsRef<str>>(rstr: S) -> CString {
     CString::new(rstr.as_ref().as_bytes()).unwrap()
