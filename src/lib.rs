@@ -177,6 +177,7 @@ impl Default for LibTxc {
 }
 
 impl Drop for LibTxc {
+    #[inline]
     #[allow(unused)]
     fn drop(&mut self) {
         self.uninitialize();
@@ -213,6 +214,7 @@ impl Drop for LibTxc {
 pub struct TxcBuff<'a>(*const u8, &'a ffi::Lib);
 
 impl Drop for TxcBuff<'_> {
+    #[inline]
     fn drop(&mut self) {
         if !self.1.free_memory(self.0) {
             // FreeMemory() == false с живым буфером недокументированная ситуация
@@ -222,6 +224,7 @@ impl Drop for TxcBuff<'_> {
 }
 
 impl AsRef<CStr> for TxcBuff<'_> {
+    #[inline]
     fn as_ref(&self) -> &CStr {
         unsafe { CStr::from_ptr(self.0.cast()) }
     }
@@ -230,6 +233,7 @@ impl AsRef<CStr> for TxcBuff<'_> {
 impl Deref for TxcBuff<'_> {
     type Target = [u8];
 
+    #[inline]
     /// Получить ссылку на содержимое буфера без завершающего \0.
     fn deref(&self) -> &Self::Target {
         self.as_ref().to_bytes()
@@ -237,6 +241,7 @@ impl Deref for TxcBuff<'_> {
 }
 
 impl From<TxcBuff<'_>> for String {
+    #[inline]
     fn from(buff: TxcBuff) -> Self {
         let r = buff.as_ref();
         trace!("to_string([u8;{}])", r.to_bytes().len());
