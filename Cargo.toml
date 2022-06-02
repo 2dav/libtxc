@@ -21,5 +21,7 @@ slog-stdlog = "4.1.1"
 lto = "thin"
 
 [features]
+# hot path contains some integrity/safety checks helpfull in development, 
+# 'unchecked' feature disables them all
 unchecked = []
 default = []
