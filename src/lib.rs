@@ -86,11 +86,11 @@ use std::{env, fmt, path::PathBuf};
 /// Ошибки вызовов библиотеки
 #[derive(Debug)]
 pub struct Error {
-    /// метод библиотеки, приведший к ошибке
+    /// функция библиотеки
     pub method: String,
     /// аргументы
     pub args: String,
-    /// текст сообщения об ошибке, возвращённый библиотекой
+    /// текст сообщения об ошибке
     pub message: String,
 }
 
