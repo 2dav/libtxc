@@ -78,7 +78,6 @@ mod ffi;
 use slog::{error, info, o, trace, warn, Drain};
 use std::ffi::CStr;
 use std::fmt::Display;
-use std::marker::PhantomData;
 use std::ops::Deref;
 use std::os::raw::c_int;
 use std::result::Result;
@@ -167,7 +166,6 @@ impl From<u8> for LogLevel {
 pub struct LibTxc {
     imp: ffi::Lib,
     log: slog::Logger,
-    _marker: PhantomData<*const ()>, // !Sync + !Send
 }
 
 impl Default for LibTxc {
@@ -325,7 +323,7 @@ impl LibTxc {
                 info!(log, "Loading library {}", path.to_str().unwrap());
                 unsafe { ffi::load(path) }
             })
-            .map(|imp| LibTxc { imp, log, _marker: PhantomData })
+            .map(|imp| LibTxc { imp, log })
     }
 
     /// Bыполняет инициализацию библиотеки: запускает поток обработки очереди
