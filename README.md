@@ -41,7 +41,7 @@ wine target/x86_64-pc-windows-gnu/release/example.exe
 ### Rust API
 ##### Загрузка экземпляра библиотеки
 Конструктор `LibTxc::new` принимает аргументом путь к директории в которой
-находится txmlconnector(64).dll.
+находится txmlconnector(64).dll и необязательный параметр экземпляр [slog](https://docs.rs/slog/latest/slog) логгера.
 
 Название файлa библиотеки
 - для i686   - `txmlconnector.dll`
@@ -53,7 +53,7 @@ use std::env;
 
 // Загрузить txmlconnector(64).dll из текущей директории
 let dll_search_dir = env::current_dir()?;
-let lib = LibTxc::new(dll_search_dir)?;
+let lib = LibTxc::new(dll_search_dir, None)?;
 // аналогично
 let lib: LibTxc = Default::default();
 ```
@@ -86,7 +86,7 @@ use libtxc::TxcBuff;
 
 lib.set_callback(|buff:TxcBuff| {
     let msg: String = buff.into();
-    let msg: CStr = buff.deref();
+    let msg: CStr = buff.as_ref();
     let msg: &[u8] = &*buff;
 });
 ```
