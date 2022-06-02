@@ -220,15 +220,15 @@ impl Drop for LibTxc {
 /// // raw bytes
 /// let msg: &[u8] = &*buff;
 /// ```
-pub struct TxcBuff<'a>(*const u8, &'a ffi::Lib, slog::Logger);
+pub struct TxcBuff<'a>(*const u8, &'a LibTxc);
 
 impl Drop for TxcBuff<'_> {
     #[inline]
     fn drop(&mut self) {
-        trace!(self.2, "txc::free_memory");
-        if !self.1.free_memory(self.0) {
+        trace!(self.1.log, "txc::free_memory");
+        if !self.1.imp.free_memory(self.0) {
             // FreeMemory() == false с живым буфером недокументированная ситуация
-            warn!(self.2, "Операция очистки txc буфера FreeMemory(*) завершилась неудачно.");
+            warn!(self.1.log, "Операция очистки txc буфера FreeMemory(*) завершилась неудачно.");
         }
     }
 }
@@ -254,7 +254,7 @@ impl From<TxcBuff<'_>> for String {
     #[inline]
     fn from(buff: TxcBuff) -> Self {
         let r = buff.as_ref();
-        trace!(buff.2, "to_string([u8;{}])", r.to_bytes().len());
+        trace!(buff.1.log, "to_string([u8;{}])", r.to_bytes().len());
         r.to_string_lossy().to_string()
     }
 }
@@ -326,7 +326,7 @@ impl LibTxc {
 
     #[inline]
     fn as_buff(&self, p: *const u8) -> TxcBuff {
-        TxcBuff(p, &self.imp, self.log.clone())
+        TxcBuff(p, self)
     }
 
     #[inline]
