@@ -259,9 +259,16 @@ impl Deref for TxcBuff<'_> {
 impl From<TxcBuff<'_>> for String {
     #[inline]
     fn from(buff: TxcBuff) -> Self {
-        let r = buff.as_ref();
-        trace!(buff.1.log, "to_string([u8;{}])", r.to_bytes().len());
-        r.to_string_lossy().to_string()
+        #[cfg(not(feature = "unchecked"))]
+        {
+            // validates utf-8 conformance
+            buff.as_ref().to_string_lossy().to_string()
+        }
+        #[cfg(feature = "unchecked")]
+        {
+            // assumes bytes are valid utf-8
+            unsafe { String::from_utf8_unchecked(buff.deref().to_vec()) }
+        }
     }
 }
 
