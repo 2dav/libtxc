@@ -89,7 +89,7 @@ pub struct Error {
     /// функция библиотеки
     pub method: String,
     /// аргументы
-    pub args: String,
+    pub args: Option<String>,
     /// текст сообщения об ошибке
     pub message: String,
 }
@@ -102,7 +102,7 @@ impl From<Error> for std::io::Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "txc.dll::{}({}) -> {}", self.method, self.args, self.message)
+        write!(f, "txc.dll::{}({:?}) -> {}", self.method, self.args, self.message)
     }
 }
 
@@ -114,17 +114,17 @@ macro_rules! count {
 // helper simplifying `Error` creation with varying arguments
 macro_rules! egeneric {
     ($method:expr, $msg:expr) => {
-        egeneric!($method, "", $msg)
+        egeneric!($method, None, $msg)
     };
     ($method:expr, [$($args:ident),*], $msg:expr) => {{
         let mut name_value = Vec::<String>::with_capacity(count!($($args)*));
         $(name_value.push(format!("{}: {:?}", stringify!($args), $args));)*
-        egeneric!($method, name_value.join(", "), $msg)
+        egeneric!($method, Some(name_value.join(", ")), $msg)
     }};
     ($method:expr, $args:expr, $msg:expr) => {
         Err(Error {
             method: format!("{}", $method),
-            args: format!("{}", $args),
+            args: $args,
             message: format!("{}", $msg),
         })
     };
