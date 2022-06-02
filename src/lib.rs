@@ -257,6 +257,21 @@ impl From<TxcBuff<'_>> for String {
     }
 }
 
+// composes full path to the library according to the target platform
+fn lib_path(mut dir: PathBuf) -> Result<PathBuf, std::io::Error> {
+    #[cfg(target_arch = "x86")]
+    dir.push("txmlconnector");
+    #[cfg(target_arch = "x86_64")]
+    dir.push("txmlconnector64");
+    dir.set_extension("dll");
+    if dir.exists() {
+        Ok(dir)
+    } else {
+        let msg = format!("file {:?} do not exists", dir);
+        Err(std::io::Error::new(std::io::ErrorKind::NotFound, msg))
+    }
+}
+
 impl LibTxc {
     /// Загружает библиотеку в пространство текущего процесса
     /// * `dll_dir` - путь к директории в которой находится txmlconnector(64).dll
@@ -284,17 +299,10 @@ impl LibTxc {
     /// let dll_search_dir:PathBuf = ["path", "to", "txmlconnector_dll", "directory"].iter().collect();
     /// let lib = LibTxc::new(dll_search_dir).unwrap();
     /// ```
-    pub fn new(mut dll_dir: PathBuf) -> Result<Self, std::io::Error> {
-        #[cfg(target_arch = "x86")]
-        dll_dir.push("txmlconnector");
-        #[cfg(target_arch = "x86_64")]
-        dll_dir.push("txmlconnector64");
-
-        dll_dir.set_extension("dll");
-        assert!(dll_dir.exists(), "{:?} not exists", dll_dir);
-
-        let lib = unsafe { ffi::load(dll_dir) }?;
-        Ok(LibTxc { imp: lib, _marker: PhantomData })
+    pub fn new(dll_dir: PathBuf) -> Result<Self, std::io::Error> {
+        lib_path(dll_dir)
+            .and_then(|path| unsafe { ffi::load(path) })
+            .map(|lib| LibTxc { imp: lib, _marker: PhantomData })
     }
 
     #[inline]
