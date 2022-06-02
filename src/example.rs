@@ -1,7 +1,6 @@
 use libtxc::LibTxc;
-use std::env;
 
-fn main() {
+fn main() -> Result<(), std::io::Error> {
     let connect = "<command id=\"connect\">\
                     <login></login>\
                     <password></password>\
@@ -12,27 +11,19 @@ fn main() {
                     <port>3900</port>
                   </command>";
     let disconnect = "<command id=\"disconnect\"/>";
-    std::thread::spawn(move || {
-        println!("loading");
-        let mut lib: LibTxc = Default::default();
 
-        println!("initializing");
-        let cd = env::current_dir().unwrap();
-        lib.initialize(cd, Default::default()).unwrap();
+    let mut lib: LibTxc = Default::default();
 
-        println!("set_callback");
-        lib.set_callback(|buff| println!("{}", Into::<String>::into(buff)));
+    let cd = std::env::current_dir()?;
 
-        println!("connecting");
-        lib.send_command(connect).unwrap();
+    lib.initialize(cd, Default::default())?;
+    lib.set_callback(|buff| println!("{}", buff));
+    lib.send_command(connect)?;
 
-        std::thread::sleep(std::time::Duration::new(30, 0));
+    std::thread::sleep(std::time::Duration::new(30, 0));
 
-        println!("disconnecting");
-        lib.send_command(disconnect).unwrap();
+    lib.send_command(disconnect)?;
+    lib.uninitialize()?;
 
-        lib.uninitialize().unwrap();
-    })
-    .join()
-    .unwrap();
+    Ok(())
 }
