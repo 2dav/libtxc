@@ -75,7 +75,7 @@
 
 mod ffi;
 
-use slog::{info, o, trace, warn, Drain};
+use slog::{error, info, o, trace, warn, Drain};
 use std::ffi::CStr;
 use std::fmt::Display;
 use std::marker::PhantomData;
@@ -188,7 +188,9 @@ impl Default for LibTxc {
 impl Drop for LibTxc {
     #[inline]
     fn drop(&mut self) {
-        self.uninitialize().unwrap();
+        if let Err(msg) = self.uninitialize() {
+            error!(self.log, "{}", msg);
+        }
     }
 }
 
