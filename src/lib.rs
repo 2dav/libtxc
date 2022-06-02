@@ -284,20 +284,14 @@ impl LibTxc {
         Ok(LibTxc { imp: lib, _marker: PhantomData })
     }
 
-    // convert to-string and than free the buffer. To be used in slow path.
-    #[inline]
-    fn read_free(&self, p: *const u8) -> String {
-        let msg = unsafe { CStr::from_ptr(p.cast()) }.to_string_lossy().to_string();
-        self.imp.free_memory(p);
-        msg
-    }
-
     #[inline]
     fn errmsg(&self, p: *const u8) -> Option<String> {
         if p.is_null() {
             None
         } else {
-            Some(self.read_free(p))
+            // Converts to `String` and frees the underlying buffer
+            let msg = TxcBuff(p, &self.imp).into();
+            Some(msg)
         }
     }
 
@@ -399,7 +393,7 @@ impl LibTxc {
         let pl = command.as_ref();
         assert_eq!(pl.last().unwrap(), &b'\0', "Данные должны иметь завершающий \0");
         let r = self.imp.send_bytes(pl);
-        let msg: String = self.read_free(r);
+        let msg: String = TxcBuff(r, &self.imp).into();
         if msg.chars().nth(17).unwrap() == 't' {
             // <result success=”true” ... />
             // _________________^
