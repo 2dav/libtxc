@@ -187,9 +187,8 @@ impl Default for LibTxc {
 
 impl Drop for LibTxc {
     #[inline]
-    #[allow(unused)]
     fn drop(&mut self) {
-        self.uninitialize();
+        self.uninitialize().unwrap();
     }
 }
 
