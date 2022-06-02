@@ -102,11 +102,7 @@ impl From<Error> for std::io::Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "txc.dll::{}({}) -> {}",
-            self.method, self.args, self.message
-        )
+        write!(f, "txc.dll::{}({}) -> {}", self.method, self.args, self.message)
     }
 }
 
@@ -285,23 +281,18 @@ impl LibTxc {
         assert!(dll_dir.exists(), "{:?} not exists", dll_dir);
 
         let lib = unsafe { ffi::load(dll_dir) }?;
-        Ok(LibTxc {
-            imp: lib,
-            _marker: PhantomData,
-        })
+        Ok(LibTxc { imp: lib, _marker: PhantomData })
     }
 
     // convert to-string and than free the buffer. To be used in slow path.
     #[inline]
     fn read_free(&self, p: *const u8) -> String {
-        let msg = unsafe { CStr::from_ptr(p.cast()) }
-            .to_string_lossy()
-            .to_string();
+        let msg = unsafe { CStr::from_ptr(p.cast()) }.to_string_lossy().to_string();
         self.imp.free_memory(p);
         msg
     }
 
-    #[inline(always)]
+    #[inline]
     fn errmsg(&self, p: *const u8) -> Option<String> {
         if p.is_null() {
             None
@@ -406,11 +397,7 @@ impl LibTxc {
     /// Если последний байт отличаетсся от \0.
     pub fn send_bytes<C: AsRef<[u8]>>(&self, command: C) -> Result<String, Error> {
         let pl = command.as_ref();
-        assert_eq!(
-            pl.last().unwrap(),
-            &b'\0',
-            "Данные должны иметь завершающий \0"
-        );
+        assert_eq!(pl.last().unwrap(), &b'\0', "Данные должны иметь завершающий \0");
         let r = self.imp.send_bytes(pl);
         let msg: String = self.read_free(r);
         if msg.chars().nth(17).unwrap() == 't' {

@@ -83,31 +83,31 @@ extern "C" fn txc_callback_ex(p: *const u8, ctx: *mut c_void) -> bool {
 }
 
 impl Lib {
-    #[inline(always)]
+    #[inline]
     pub fn initialize(&self, path: &CStr, log_level: c_int) -> *const u8 {
         trace!("txc::initialize");
         unsafe { (self._initialize)(path.as_ptr().cast(), log_level) }
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn set_log_level(&self, log_level: c_int) -> *const u8 {
         trace!("txc::set_log_level");
         unsafe { (self._set_log_level)(log_level) }
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn send_bytes(&self, cmd: &[u8]) -> *const u8 {
         trace!("txc::send_bytes {}", cmd.len());
         unsafe { (self._send_command)(cmd.as_ptr()) }
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn free_memory(&self, pbuff: *const u8) -> bool {
         trace!("txc::free_memory {}", pbuff as usize);
         unsafe { (self._free_memory)(pbuff) }
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn uninitialize(&self) -> *const u8 {
         trace!("txc::uninitialize {}", self.handle as usize);
         unsafe { (self._uninitialize)() }
