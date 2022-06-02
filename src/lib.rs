@@ -227,6 +227,11 @@ impl Drop for TxcBuff<'_> {
     #[inline]
     fn drop(&mut self) {
         trace!(self.1.log, "txc::free_memory");
+
+        #[cfg(feature = "unchecked")]
+        self.1.imp.free_memory(self.0);
+
+        #[cfg(not(feature = "unchecked"))]
         if !self.1.imp.free_memory(self.0) {
             // FreeMemory() == false с живым буфером недокументированная ситуация
             warn!(self.1.log, "Операция очистки txc буфера FreeMemory(*) завершилась неудачно.");
@@ -443,6 +448,7 @@ impl LibTxc {
     pub fn send_bytes<C: AsRef<[u8]>>(&self, command: C) -> Result<String, Error> {
         let pl = command.as_ref();
 
+        #[cfg(not(feature = "unchecked"))]
         if pl.is_empty() || pl.last().unwrap().ne(&b'\0') {
             let cmd = unsafe { std::str::from_utf8_unchecked(pl) };
             return egeneric!(
