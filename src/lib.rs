@@ -3,462 +3,486 @@
 #![warn(rustdoc::missing_crate_level_docs)]
 #![warn(rustdoc::invalid_html_tags)]
 
-//! Rust интерфейс к [TRANSAQ XML Connector](https://www.finam.ru/howtotrade/tconnector/)
+//! [TRANSAQ XML Connector](https://www.finam.ru/howtotrade/tconnector/) API для Rust.
 //!
-//! Реaлизует минимум необходимого для работы с коннектором из rust:
-//! - динамическая загрузкa экземпляров библиотеки
-//! - конвертация `Rust String` <> `C-String`
-//! - автоматическое освобождениe буферов коннектора
-//! - корректное отключение, остановка коннектора и освобождение ресурсов
+//!`libtxc` позволяет использовать коннектор в программах на `Rust` и добавляет необходимые гарантии
+//! безопасности.
 //!
+//! В частности, исключено возникновение подвисших указателей на ресурсы библиотеки, наличие
+//! [`TCStr`](smart-pointer на ресурсы библиотеки) или [`Sender`](обьект-отправитель
+//! сообщений) в любом участке кода гарантирует безопасность связанных с ними операций.
+//! Исключён потенциальный *deadlock*, присутствующий в дизайне коннектора.
 //!
+//! - [Примеры](https://github.com/2dav/libtxc/examples)
 //!
-//! ##### Загрузка экземпляра библиотеки
-//! Конструктор [`LibTxc::new`] принимает аргументом путь к директории в которой
-//! находится txmlconnector(64).dll и необязательный параметр экземпляр [slog](https://docs.rs/slog/latest/slog) логгера.
+//! # Instrumentation
+//! `libtxc` содержит [`tracing`](https://docs.rs/tracing/latest/tracing/) probes, которые могут
+//! быть использованы для сбора онлайн метрик, профилирования пользовательского кода обратного вызова
+//! или отладки.
 //!
-//! Название файлa библиотеки
-//! - для i686   - `txmlconnector.dll`
-//! - для x86_64 - `txmlconnector64.dll`
+//! # Features
+//! **catch_unwind** *включено по умолчанию*
 //!
-//! ```
-//! use libtxc::LibTxc;
-//! use std::env;
+//! Возникновение паники(*panic*) по умолчанию запускает разматывание стека(*stack unwinding*), и на
+//! данный момент это приводит к `undefined behaviour`, если паника произошла в окружении другого языка.
+//! *catch_unwind* включает проверку паники в callback-коде; в случае её возникновения выводится
+//! сообщение и процесс аварийно завершается.
 //!
-//! fn main() -> Result<()>{
-//!     // Загрузить txmlconnector(64).dll из текущей директории
-//!     let dll_search_dir = env::current_dir()?;
-//!     let lib = LibTxc::new(dll_search_dir, None)?;
-//!     // аналогично
-//!     let lib: LibTxc = Default::default();
-//!     Ok(())
-//! }
-//! ```
+//! **safe_buffers** *включено по умолчанию*
 //!
-//! ##### Установка обработчика входящих сообщений
-//! см. [`LibTxc::set_callback()`]
-//! ```
-//! use libtxc::{LibTxc, TxcBuff};
+//! Если предположить возникновение ситуации, при которой коннектор вернёт нулевой указатель, или
+//! ответ коннектора будет содержать некорректные данные, это немедленно приведёт к `undefined behaviour`.
+//! *safe_buffers* включает проверку указателей и содержимого буферов, возвращённых коннектором.
 //!
-//! let mut lib:LibTxc = Default::default();
-//! lib.set_callback(|buff:TxcBuff| {});
-//! ```
-//! ##### Отправка сообщений
-//! - [`LibTxc::send_command()`] - отправить string-like что-нибудь; копирует данные, добавляет заверщающий \0
-//! - [`LibTxc::send_bytes()`] - отправить голые байты заканчивающиеся \0
-//! ```
-//! let lib = ...
-//! lib.send_command("...");
-//! lib.send_bytes("...\0".as_bytes());
-//! ```
-//! ##### Обработка сообщений
-//! [`TxcBuff`] передаётся в пользовательскую функцию обратного вызова, содержит указатель на буфер
-//! возвращённый коннектором, позволяет прочитать содержимое.
-//!
-//! Освобождение бyфера коннектора(dll:FreeMemory) происходит вместе с деструктором(Drop::drop) `TxcBuff`.
-//!
-//! Доступ к содержимому буфера:
-//! - [`TxcBuff::deref()`]  - получить `[u8]`
-//! - [`TxcBuff::as_ref()`] - получить [`CStr`]
-//! - [`Into::into()`]   - получить [`String`]; выделяет память, копирует байты текста, проверяет соответствие utf-8
-//! ```
-//! use std::ffi::CStr;
-//! use std::ops::Deref;
-//! use libtxc::TxcBuff;
-//!
-//! lib.set_callback(|buff:TxcBuff| {
-//!     let msg: String = buff.into();
-//!     let msg: CStr = buff.as_ref();
-//!     let msg: &[u8] = &*buff;
-//! });
-//! ```
+//! # License
+//! * [Apache Version 2.0](https://www.apache.org/licenses/LICENSE-2.0)
+//! * [MIT](https://opensource.org/licenses/MIT)
+use std::{cell::Cell, fmt, io, path::PathBuf, sync::Arc};
+use tracing::{error, info, instrument, warn};
 
+mod buffers;
+mod callback;
 mod ffi;
+mod stream;
 
-use slog::{error, info, o, trace, warn, Drain};
-use std::ffi::CStr;
-use std::fmt::Display;
-use std::ops::Deref;
-use std::os::raw::c_int;
-use std::result::Result;
-use std::{env, fmt, path::PathBuf};
+use buffers::{parse_send_response, with_nonnull_buf};
+use callback::{BoxT, InputStream};
 
-/// Ошибки вызовов библиотеки
+pub use buffers::TCStr;
+pub use stream::Stream;
+
+/// Перечисление возможных ошибок и исключительных ситуаций
 #[derive(Debug)]
-pub struct Error {
-    /// функция библиотеки
-    pub method: String,
-    /// аргументы
-    pub args: Option<String>,
-    /// текст сообщения об ошибке
-    pub message: String,
+pub enum Error {
+    /// Ошибка, возникшая во время загрузки библиотеки
+    Loading(io::Error),
+    /// Ошибка инициализации TransaqXMLConnector
+    Initialization(String),
+    /// Ошибка обработки команды
+    InvalidCommand(String),
+    /// Внутренняя ошибка/исключение коннектора
+    Internal(String),
 }
 
-impl From<Error> for std::io::Error {
-    fn from(e: Error) -> Self {
-        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
-    }
-}
+#[allow(missing_docs)]
+pub type Result<T = ()> = std::result::Result<T, Error>;
 
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "txc.dll::{}({:?}) -> {}", self.method, self.args, self.message)
-    }
+struct Inner {
+    // keep this field declaration order to ensure that callback state being dropped first,
+    // since it might contain saved smart-pointers to C-library resources
+    callback: Cell<Option<BoxT>>,
+    module: ffi::Module,
 }
+// 'TransaqConnector' is non-`Copy`, and it is the only one who might mutate `Inner`,
+// see `TransaqConnector::input_stream` for soundness of this.
+unsafe impl Sync for Inner {}
 
-// counts the number of expanded elements, compiles to const expression
-macro_rules! count {
-    () => (0usize);
-    ( $x:tt $($xs:tt)* ) => (1usize + count!($($xs)*));
-}
-// helper simplifying `Error` creation with varying arguments
-macro_rules! egeneric {
-    ($method:expr, $msg:expr) => {
-        egeneric!($method, None, $msg)
-    };
-    ($method:expr, [$($args:ident),*], $msg:expr) => {{
-        let mut name_value = Vec::<String>::with_capacity(count!($($args)*));
-        $(name_value.push(format!("{}: {:?}", stringify!($args), $args));)*
-        egeneric!($method, Some(name_value.join(", ")), $msg)
-    }};
-    ($method:expr, $args:expr, $msg:expr) => {
-        Error {
-            method: format!("{}", $method),
-            args: $args,
-            message: format!("{}", $msg),
+/// Экземпляр загруженной библиотеки
+///
+/// `TransaqConnector` содержит экземпляр динамически загруженной библиотеки и предоставляет
+/// интерфейс к основным функциям:
+/// - [`TransaqConnector::input_stream()`] - для обработки входящих сообщений,
+/// - [`TransaqConnector::sender()`] - для отправки сообщений
+///
+/// Время жизни библиотеки(dll модуля) определяется счётчиком ссылок, который разделяется между всеми
+/// экземплярами [`Sender`] и [`TransaqConnector`]. Остановка коннектора и освобождение ресурсов
+/// происходят в момент удаления последней ссылки.
+///
+/// `TransaqConnector` существует в единственном экземпляре, но владение может быть передано между
+/// потоками.
+#[repr(transparent)]
+pub struct TransaqConnector(Arc<Inner>);
+unsafe impl Send for TransaqConnector {}
+
+impl TransaqConnector {
+    /// Загружает и подготавливает библиотеку к использованию
+    ///
+    /// Загружает динамическую библиотеку, расположенную по пути **library_path** при помощи API
+    /// ОС.
+    ///
+    /// Инициализирует библиотеку `txc::initialize(3)` с директорией для логов коннектора **log_dir**
+    /// и уровнем логирования **logging_level**.
+    ///
+    /// # Errors
+    /// - [`Error::Loading`] - библиотека не найдена по указанному пути, ошибка API ОС во время загрузки,
+    /// попытка повторной загрузки библиотеки
+    /// - [`Error::Initialization`] - внутренняя ошибка коннектора во время инициализации
+    pub fn new(library_path: PathBuf, log_dir: PathBuf, logging_level: LogLevel) -> Result<Self> {
+        if !library_path.exists() {
+            let msg = format!("file {library_path:?} do not exists");
+            return Err(Error::Loading(io::Error::new(io::ErrorKind::NotFound, msg)));
         }
-    };
+
+        let module = unsafe { ffi::Module::load(library_path.clone()).map_err(Error::Loading)? };
+
+        info!("Library loaded {library_path:?}");
+
+        module.initialize(log_dir.clone(), logging_level as _).map_err(Error::Initialization)?;
+
+        info!("Library initialized log_dir:{log_dir:?}, log_level:{logging_level:?}");
+
+        Ok(Self(Arc::new(Inner { module, callback: Cell::new(None) })))
+    }
+
+    /// Создаёт обьект-отправитель сообщений
+    ///
+    /// `Sender` содержит жёсткую ссылку(`strong reference`) на экземпляр загруженной библиотеки,
+    /// что препятствует её выгрузке, пока существует хотя бы один экземпляр `Sender`.   
+    ///
+    /// Создание `Sender` является легковесной операцией лишь увеличивающей счётчик ссылок.
+    /// Однако, создание нового `Sender` для отправки каждой новой команды приводит к увеличению
+    /// трафика между ядрами процессора, что может негативно сказаться на произодительности.  
+    ///
+    /// # Пример
+    /// ```no_run
+    /// use libtxc::{TransaqConnector, Sender};
+    ///
+    /// let txc: TransaqConnector = /*..*/;
+    /// let sender: Sender = txc.sender();
+    /// // Освобождение `TransaqConnector` не приводит к выгрузке библиотеки, т.к. `sender` всё ещё
+    /// // находится в области видимости
+    /// drop(txc);
+    ///
+    /// sender.send("<command id=\"get_connector_version\"/>\0");
+    /// ```
+    pub fn sender(&self) -> Sender {
+        Sender::new(Arc::clone(&self.0))
+    }
+
+    /// Создаёт [`Stream`] для компоновки конвейера обработки входящих сообщений
+    ///
+    /// Вызов [`Stream::subscribe`] регистрирует функцию обратного вызова в качестве
+    /// обработчика входящих сообщений.
+    ///
+    /// Пример минимального обработчкиа
+    /// ```no_run
+    /// use libtxc::TCStr;
+    ///
+    /// let mut txc = /*..*/;
+    /// txc.input_stream().subscribe(|buf:TCStr| println!("{buf}"));
+    /// ```
+    ///
+    /// При поступлении новых сообщений функция обратного вызова запускается в отдельном потоке,
+    /// который управляется библиотекой. В связи с этим, "callback" и его зависимости
+    /// должны удовлетворять [`Send`] и [`Sync`], гарантирующим безопасность в многопоточном
+    /// окружении
+    /// ```no_run
+    /// let mut txc = /*..*/;
+    /// let v = vec![];
+    /// txc.input_stream().subscribe(move |buf|{
+    ///     v.extend(buf.to_bytes());
+    /// });
+    /// println!("{:?}", v);
+    /// // Ошибка компиляции! `Vec` требует явной синхронизации для многопоточного использования
+    /// ```
+    ///
+    /// Обработчик может быть установлен повторно в любой момент исполнения программы.
+    /// Повторный вызов [`Stream::subscribe`] освобождает ресурсы текущего обработчика и
+    /// регистрирует новый; эта операция потоко-безопасна и не требует доп. синхронизации.
+    ///
+    /// Архитектура коннектора предполагает использование каналов\очередей для передачи сообщений
+    /// между потоком данных `TransaqXMLConnector` и обработчиками на других потоках
+    /// ```no_run
+    /// let mut txc = /*..*/;
+    ///
+    /// let (tx, rx) = std::sync::mpsc::sync_channel(1<<10);
+    ///
+    /// txc.input_stream()
+    ///     .map(|buf| /*parse(buf)*/)
+    ///     .subscribe(move |msg| {
+    ///         tx.send(msg);
+    ///     });
+    ///
+    /// // ...
+    ///
+    /// for msg in rx.into_iter(){
+    ///     println!("Server status: {msg}");
+    /// }
+    /// ```
+    ///
+    /// См. [examples](https://github.com/2dav/libtxc/examples) в репозитории проекта, для
+    /// различных примеров использования.  
+    #[inline(always)]
+    pub fn input_stream(&mut self) -> impl stream::Stream<Output = TCStr<'_>> + '_ {
+        let subscribe_fn = |trampoline: ffi::CallbackEx, payload: BoxT| {
+            // `set_callback_ex` and callback execution routine are both internally ordered by the same
+            // 'mutex' and this prevents 'race condition' in this section.
+            // However further we are mutating internal field without any synchronization, and this
+            // is if the compiler/CPU decides to reorder instructions, may cause the current `callback`
+            // state to be dropped while it is executing on another thread.
+            // To prevent this we need to fix instruction order
+            if self.0.module.set_callback_ex(trampoline, payload.as_raw_ptr()) {
+                // fix instruction order, see comment above
+                unsafe { std::arch::asm!("mfence", options(nostack, preserves_flags)) };
+                self.0.callback.set(Some(payload));
+
+                info!("new callback set");
+            } else {
+                error!("`set_callback_ex` - Не удалось установить функцию обратного вызова. \
+                В документации к коннектору нет описания этой ситуации, как и способов её исправления.\
+                Если вам удалось добиться воспроизводимости этой ошибки создайте issue на github");
+            }
+        };
+
+        let free_mem = self.0.module.free_memory;
+        InputStream(subscribe_fn).map(move |ptr| TCStr::new(ptr, free_mem))
+    }
+}
+
+/// Обьект-отправитель сообщений.
+///
+/// Использование методов [`Sender::send`] и [`Sender::send_ptr`] компилируется в прямые вызовы функции  
+/// `BYTE* send_command(BYTE*)` коннектора.
+///
+/// Этот тип может быть клонирован и передан между потоками для создания нескольких точек отправки сообщений.
+/// Cтоит иметь ввиду, что непосредственная отправка сообщений внутри коннектора реализована
+/// с использованем блокирующих примитивов синхронизации, происходит в "последовательном" режиме
+/// и не гарантирует очерёдность.
+///
+/// # Пример
+/// ```no_run
+/// use libtxc::{TransaqConnector, Sender};
+///
+/// let txc = /*..*/;
+/// txc.subscribe(|buf| println!("rx: {}", buf.to_string_lossy()));
+///
+/// let sender: Sender = txc.sender();
+/// let sender_2: Sender = sender.clone();
+/// let cmd = "<command id=\"get_connector_version\"/>\0";
+///
+/// let h = std::thread::spawn(move ||{
+///     unsafe{ sender.send(cmd) }.unwrap();
+/// });
+///
+/// unsafe{ sender_2.send(cmd) }.unwrap();
+///
+/// h.join().unwrap();
+///
+/// // > rx: <connector_version>*.*.*.*</connector_version>
+/// // > rx: <connector_version>*.*.*.*</connector_version>
+/// ```
+// `txc` library, by design, have a chance for a 'deadlock' on misuse, which can be prevented
+// with the `rust` type system.
+// In particular, the library is meant to be used in multi-threaded environment, access to the internal
+// state is synchronized with the 'mutex' and user-callback is running inside the locked section.
+// Thus, calling library functions from within the 'callback' implies taking a lock on the 'mutex'
+// that is already locked by the 'callback' execution routine.
+// User 'callback' required to be `Send` + `Sync` since it's executing on the different thread
+// managed by the library, and to prevent `Sender` from moving into the 'callback' it must not
+// meet one of these bounds, that is what this `*mut ` for
+#[derive(Clone)]
+pub struct Sender(Arc<Inner>, std::marker::PhantomData<*mut ()>);
+unsafe impl Send for Sender {}
+
+impl Sender {
+    fn new(inner: Arc<Inner>) -> Self {
+        Self(inner, std::marker::PhantomData)
+    }
+
+    /// Передаёт данные коннектору
+    ///
+    /// Передаёт буфер в функцию коннектора `BYTE* send_command(BYTE*)` и возвращает
+    /// [`Result`] с ответным сообщением.
+    ///
+    /// Этот метод реализован через вызов [`Sender::send_ptr()`] с указателем на переданный буфер.
+    ///
+    /// # Safety
+    /// Требования к буферу:
+    /// - должен содержать только символы в кодировке UTF-8
+    /// - содержать нулевой байт `\0`
+    /// - оставаться валидным и не изменяться до окончания вызова метода
+    ///
+    /// # Errors
+    /// - [`Error::InvalidCommand`] - при формировании команды была допущена ошибка и она не прошла
+    /// проверку, или нарушена логика работы с коннектором
+    /// - [`Error::Internal`] - во время обработки команды произошло исключение
+    ///
+    /// # Examples
+    /// ```no_run
+    /// let sender = /**/;
+    ///
+    /// let result = unsafe{ sender.send(r#"invalid command\0"#) };
+    /// println!("{:?}", result);
+    /// // > Err(Internal("<error>Error document empty.</error>"))
+    /// ```
+    /// ```no_run
+    /// let result = unsafe { sender.send(r#"<command id="server_status"/>\0"#)};
+    /// println!("{:?}", result);
+    /// // > Err(InvalidCommand("<result success=\"false\"><message>Cannot process this command without connection.</message></result>"))
+    /// ```
+    /// ```no_run
+    /// let result = unsafe{ sender.send(r#"<command id="get_connector_version"/>\0"#) };
+    /// assert!(result.is_ok());
+    /// println!("{}", result.unwrap().to_string_lossy());
+    /// // > <result success="true"/>
+    /// // > callback > <connector_version>*.*.*.*.*</connector_version>
+    /// ```
+    ///
+    /// # Panics
+    /// В `debug` сборке - если буфер не соответствует условиям
+    #[inline]
+    pub unsafe fn send<B: AsRef<[u8]>>(&self, buf: B) -> Result<TCStr<'_>> {
+        #[cfg(debug_assertions)]
+        {
+            let non_empty = !buf.as_ref().is_empty();
+            let contains_term = buf.as_ref().iter().any(|b| b'\0'.eq(b));
+            let valid_utf8 = std::str::from_utf8(buf.as_ref()).is_ok();
+            assert!(non_empty, "пустой буфер");
+            assert!(contains_term, "отсутствует нулевой байт");
+            assert!(valid_utf8, "буфер содержит не валидные UTF-8 символы");
+        }
+
+        self.send_ptr(buf.as_ref().as_ptr())
+    }
+
+    /// Передаёт данные коннектору
+    ///
+    /// Передаёт указатель на данные в функцию коннектора `BYTE* send_command(BYTE*)` и возвращает
+    /// [`Result`] с ответным сообщением.
+    ///
+    /// Этот метод не имеет накладных расходов, но его использование может привести к **undefined behaviour**
+    /// в случае нарушения любого из условий, поэтому он определён как небезопасный(*unsafe*).
+    ///
+    /// Если опция проекта(feature) **safe_buffers** не включена, то парсинг результата сводится
+    /// к чтению 1-2х байт по фиксированным смещениям. При включенной опции - определяется размер
+    /// буфера(`libc::strlen`) и проверяется выход за границы.
+    ///
+    /// # Safety
+    /// Помимо требований к указателям(см. [std::ptr] safety invariants) языка `rust`,
+    /// память, на которую ссылается указатель:
+    /// - должна содержать только символы в кодировке UTF-8
+    /// - содержать нулевой байт `\0`
+    /// - оставаться валидной и не изменяться до окончания вызова метода
+    ///
+    /// # Errors
+    /// - [`Error::InvalidCommand`] - при формировании команды была допущена ошибка и она не прошла
+    /// проверку, или нарушена логика работы с коннектором
+    /// - [`Error::Internal`] - во время обработки команды произошло исключение
+    ///
+    /// # Panics
+    /// В `debug` сборке - если передан нулевой указатель
+    #[instrument(level = "debug", skip_all)]
+    #[inline]
+    pub unsafe fn send_ptr(&self, ptr: *const u8) -> Result<TCStr<'_>> {
+        debug_assert!(!ptr.is_null(), "нулевой указатель");
+
+        #[inline]
+        #[cold]
+        fn cold_failure<'a>() -> Result<TCStr<'a>> {
+            Err(Error::Internal("Коннектор вернул нулевой указатель".into()))
+        }
+
+        with_nonnull_buf(
+            self.0.module.send_command(ptr) as _,
+            |ptr| parse_send_response(TCStr::new(ptr, self.0.module.free_memory)),
+            cold_failure,
+        )
+    }
 }
 
 /// Глубина логирования в соответствии с детализацией и размером лог-файла
-#[derive(Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(i32)]
 pub enum LogLevel {
     /// минимальный
     Minimum = 1,
     /// стандартный(по-умолчанию)
+    #[default]
     Default = 2,
     /// максимальный
     Maximum = 3,
 }
-
-impl Default for LogLevel {
-    fn default() -> Self {
-        LogLevel::Default
-    }
-}
-
-impl From<u8> for LogLevel {
-    fn from(me: u8) -> LogLevel {
-        match me {
-            1 => LogLevel::Minimum,
-            3 => LogLevel::Maximum,
-            _ => LogLevel::Default,
-        }
-    }
-}
-
-/// Интерфейс к коннектору.
-///
-/// Содержит экземпляр динамически загруженной библиотеки.
-/// - `!Sync` + `!Send` не может быть передан между потоками
-/// - остановка коннектора, выгрузка библиотеки и освобождение ресурсов происходят в деструкторе [`Drop`]
-pub struct LibTxc {
-    imp: ffi::Lib,
-    log: slog::Logger,
-}
-
-impl Default for LibTxc {
-    fn default() -> Self {
-        LibTxc::new(env::current_dir().unwrap(), None).unwrap()
-    }
-}
-
-impl Drop for LibTxc {
-    #[inline]
-    fn drop(&mut self) {
-        if let Err(msg) = self.uninitialize() {
-            error!(self.log, "{}", msg);
-        }
-    }
-}
-
-/// Обертка над буфером Transaq Connector.
-///
-/// Передаётся в пользовательскую функцию обратного вызова, содержит указатель на буфер
-/// возвращённый коннектором.
-///
-/// Освобождение бyфера коннектора(dll:FreeMemory) происходит вместе с деструктором(Drop::drop) `TxcBuff`.
-///
-/// Доступ к содержимому буфера:
-/// - [`TxcBuff::deref()`]  - получить `[u8]`
-/// - [`TxcBuff::as_ref()`] - получить `CStr`
-/// - [`Into::into()`]   - получить `String`; выделяет память, копирует байты текста, проверяет соответствие utf-8
-///
-///
-/// # Примеры
-/// ```
-/// use std::ffi::CStr;
-/// use std::ops::Deref;
-/// use libtxc::TxcBuff;
-///
-/// let buff: TxcBuff = ...;
-/// // выделяет память, копирует байты текста, проверяет соответствие utf-8
-/// let msg: String = buff.into();
-/// // CStr
-/// let msg: &[u8] = buff.as_ref();
-/// // raw bytes
-/// let msg: &[u8] = &*buff;
-/// ```
-pub struct TxcBuff<'a>(*const u8, &'a LibTxc);
-
-impl Drop for TxcBuff<'_> {
-    #[inline]
-    fn drop(&mut self) {
-        trace!(self.1.log, "txc::free_memory");
-
-        #[cfg(feature = "unchecked")]
-        self.1.imp.free_memory(self.0);
-
-        #[cfg(not(feature = "unchecked"))]
-        if !self.1.imp.free_memory(self.0) {
-            // FreeMemory() == false с живым буфером недокументированная ситуация
-            warn!(self.1.log, "Операция очистки txc буфера FreeMemory(*) завершилась неудачно.");
-        }
-    }
-}
-
-impl AsRef<CStr> for TxcBuff<'_> {
-    #[inline]
-    fn as_ref(&self) -> &CStr {
-        unsafe { CStr::from_ptr(self.0.cast()) }
-    }
-}
-
-impl Deref for TxcBuff<'_> {
-    type Target = [u8];
-
-    #[inline]
-    /// Получить ссылку на содержимое буфера без завершающего \0.
-    fn deref(&self) -> &Self::Target {
-        self.as_ref().to_bytes()
-    }
-}
-
-impl From<TxcBuff<'_>> for String {
-    #[inline]
-    fn from(buff: TxcBuff) -> Self {
-        #[cfg(not(feature = "unchecked"))]
-        {
-            // validates utf-8 conformance
-            buff.as_ref().to_string_lossy().to_string()
-        }
-        #[cfg(feature = "unchecked")]
-        {
-            // assumes bytes are valid utf-8
-            unsafe { String::from_utf8_unchecked(buff.deref().to_vec()) }
-        }
-    }
-}
-
-impl Display for TxcBuff<'_> {
-    #[inline]
+impl fmt::Display for LogLevel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.as_ref().to_string_lossy())
-    }
-}
-
-// composes full path to the library according to the target platform
-fn lib_path(mut dir: PathBuf) -> Result<PathBuf, std::io::Error> {
-    #[cfg(target_arch = "x86")]
-    dir.push("txmlconnector");
-    #[cfg(target_arch = "x86_64")]
-    dir.push("txmlconnector64");
-    dir.set_extension("dll");
-    if dir.exists() {
-        Ok(dir)
-    } else {
-        let msg = format!("file {:?} do not exists", dir);
-        Err(std::io::Error::new(std::io::ErrorKind::NotFound, msg))
-    }
-}
-
-impl LibTxc {
-    /// Загружает библиотеку в пространство текущего процесса
-    /// * `dll_dir` - путь к директории в которой находится txmlconnector(64).dll
-    /// * `log`     - экземпляр [slog](https://docs.rs/slog/latest/slog) логгера, необязательный
-    /// параметр
-    ///
-    /// Название файлa библиотеки
-    /// - для i686   - `txmlconnector.dll`
-    /// - для x86_64 - `txmlconnector64.dll`
-    ///
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use libtxc::LibTxc;
-    ///
-    /// let lib: LibTxc = Default::default();
-    /// // аналогично
-    /// use std::env;
-    /// let dll_search_dir = env::current_dir().unwrap();
-    /// let lib = LibTxc::new(dll_search_dir, None).unwrap();
-    /// ```
-    /// ```
-    /// use libtxc::LibTxc;
-    /// use std::path::PathBuf;
-    ///
-    /// let dll_search_dir:PathBuf = ["path", "to", "txmlconnector_dll", "directory"].iter().collect();
-    /// let lib = LibTxc::new(dll_search_dir, None).unwrap();
-    /// ```
-    pub fn new<L: Into<Option<slog::Logger>>>(
-        dll_dir: PathBuf,
-        log: L,
-    ) -> Result<Self, std::io::Error> {
-        let log =
-            log.into().unwrap_or_else(|| slog::Logger::root(slog_stdlog::StdLog.fuse(), o!()));
-        lib_path(dll_dir)
-            .and_then(|path| {
-                info!(log, "Loading library {}", path.to_str().unwrap());
-                unsafe { ffi::load(path) }
-            })
-            .map(|imp| LibTxc { imp, log })
-    }
-
-    /// Bыполняет инициализацию библиотеки: запускает поток обработки очереди
-    /// обратных вызовов, инициализирует систему логирования библиотеки.
-    ///
-    /// * `log_path`  - Путь к директории, в которую будут сохраняться файлы отчетов (XDF*.log, DSP*.txt, TS*.log)
-    /// * `log_level` - Глубина логирования
-    ///
-    /// Функция `initialize` может быть вызвана в процессе работы с Коннектором
-    /// повторно для изменения директории и уровня логирования, но только в
-    /// случае, когда библиотека остановлена, то есть была выполнена команда
-    /// disconnect или соединение еще не было установлено.
-    ///
-    /// Функция должна быть выполнена перед началом работы с библиотекой, то есть перед
-    /// первой отправкой команды.
-    /// Каждый успешный вызов функции `initialize` должен сопровождаться вызовом
-    /// функции [`LibTxc::uninitialize()`].
-    ///
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::env;
-    /// use libtxc::LibTxc;
-    /// use anyhow::Result;
-    ///
-    /// fn main() ->Result<()> {
-    ///     let lib:LibTxc = Default::default();
-    ///     let log_path = env::current_dir()?;
-    ///     lib.initialize(log_path, Default::default())?;
-    ///     Ok(())
-    /// }
-    /// ```
-    /// # Errors
-    ///
-    /// [`Error`] ошибкa, возвращённая библиотекой
-    pub fn initialize(&mut self, log_path: PathBuf, log_level: LogLevel) -> Result<(), Error> {
-        if !log_path.exists() {
-            return Err(egeneric!(
-                "Initialize",
-                [log_path],
-                "директория не существует или недоступна"
-            ));
-        }
-
-        let c_log_path = ffi::to_cstring(log_path.display().to_string());
-
-        trace!(self.log, "txc::initialize");
-        self.imp
-            .initialize(c_log_path.as_c_str(), log_level as c_int)
-            .map_err(|msg| egeneric!("Initialize", [log_path, log_level], msg))
-    }
-
-    /// Выполняет остановку внутренних потоков библиотеки, в том числе завершает
-    /// поток обработки очереди обратных вызовов. Останавливает систему
-    /// логирования библиотеки и закрывает файлы отчетов.
-    ///
-    /// Функция вызывается автоматически в момент окончания жизни экземпляра `LibTxc`
-    ///
-    ///
-    /// # Errors
-    ///
-    /// [`Error`] ошибкa, возвращённая библиотекой
-    pub fn uninitialize(&self) -> Result<(), Error> {
-        trace!(self.log, "txc::uninitialize");
-        self.imp.uninitialize().map_err(|msg| egeneric!("UnInitialize", msg))
-    }
-
-    /// Изменяет уровень логирования без остановки библиотеки.
-    ///
-    ///
-    /// # Errors
-    ///
-    /// [`Error`] ошибкa, возвращённая библиотекой
-    pub fn set_loglevel(&self, log_level: LogLevel) -> Result<(), Error> {
-        trace!(self.log, "txc::set_log_level");
-        self.imp
-            .set_log_level(log_level as c_int)
-            .map_err(|msg| egeneric!("SetLogLevel", [log_level], msg))
-    }
-
-    /// Служит для передачи команд Коннектору.
-    ///
-    /// * `command` - Указатель на строку, содержащую xml команду для библиотеки TXmlConnector
-    ///
-    /// В случае успеха возвращает сообщение коннектора.
-    ///
-    /// Функция может выполняться только в период между вызовами функций
-    /// [`LibTxc::initialize`()] и [`LibTxc::uninitialize()`].
-    ///
-    ///
-    /// # Errors
-    ///
-    /// [`Error`] ошибкa, возвращённая библиотекой
-    pub fn send_command<C: AsRef<str>>(&self, command: C) -> Result<String, Error> {
-        self.send_bytes(ffi::to_cstring(command).as_bytes_with_nul())
-    }
-
-    /// В отличие от [`LibTxc::send_command()`], принимает байты в качестве аргумента.
-    /// Этот метод не имеет затрат связанных с конвертацией Rust String -> C-String, предполагая
-    /// что данные уже имеют завершающий \0.
-    ///
-    /// # Panics
-    /// Если последний байт отличаетсся от \0.
-    pub fn send_bytes<C: AsRef<[u8]>>(&self, command: C) -> Result<String, Error> {
-        let pl = command.as_ref();
-
-        #[cfg(not(feature = "unchecked"))]
-        if pl.is_empty() || pl.last().unwrap().ne(&b'\0') {
-            let cmd = unsafe { std::str::from_utf8_unchecked(pl) };
-            return Err(egeneric!(
-                "SendCommand",
-                [cmd],
-                "Данные для отправки должны иметь завершающий \0"
-            ));
-        }
-
-        self.imp.send_bytes(pl).map_err(|err| {
-            let cmd = unsafe { std::str::from_utf8_unchecked(pl) };
-            egeneric!("SendCommand", [cmd], err)
+        f.write_str(match self {
+            LogLevel::Minimum => "LogLevel::Minimum",
+            LogLevel::Default => "LogLevel::Default",
+            LogLevel::Maximum => "LogLevel::Maximum",
         })
     }
+}
 
-    /// Устанавливает функцию обратного вызова, которая
-    /// будет принимать асинхронные информационные сообщения от Коннектора.
-    ///
-    /// * `callback` - функция обратного вызова
-    pub fn set_callback<F>(&self, mut callback: F)
-    where
-        F: FnMut(TxcBuff),
-    {
-        trace!(self.log, "txc::set_callback");
-        self.imp.set_callback(
-            #[inline(always)]
-            move |p| callback(TxcBuff(p, self)),
-        );
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::Loading(inner) => {
+                write!(f, "Не удалось загрузить библиотеку: {inner} ")
+            }
+            Error::Initialization(msg) => {
+                write!(f, "Инициализация библиотеки трагически провалилась: {msg} ")
+            }
+            Error::InvalidCommand(msg) => {
+                write!(f, "Команда не прошла проверку и не была отправлена: {msg} ")
+            }
+            Error::Internal(msg) => {
+                write!(
+                    f,
+                    "Внутренняя ошибка/exception коннектора - скорее всего это - исключительная ситуация, \
+                       которая не должна происходить в принципе.\n\
+                       Проверьте целостность файлов, актуальность версий и параметры окружения.\n\
+                       Если ситуация повторяется и надежда иссякла, вы могли бы создать issue на\
+                       github.\n{msg}"
+                )
+            }
+        }
     }
+}
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        if let Self::Loading(src) = self {
+            Some(src)
+        } else {
+            None
+        }
+    }
+}
+
+unsafe impl Send for Error {}
+unsafe impl Sync for Error {}
+
+impl fmt::Debug for TransaqConnector {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("TransaqConnector").finish()
+    }
+}
+
+impl fmt::Debug for Sender {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Sender").finish()
+    }
+}
+
+//
+// (C) hashbrown
+//
+// Branch prediction hint. This is currently only available on nightly but it
+// consistently improves performance by 10-15%.
+#[cfg(feature = "nightly")]
+use core::intrinsics::{likely, unlikely};
+
+// On stable we can use #[cold] to get a equivalent effect: this attributes
+// suggests that the function is unlikely to be called
+#[cfg(not(feature = "nightly"))]
+#[inline]
+#[cold]
+fn cold() {}
+
+#[allow(unused)]
+#[cfg(not(feature = "nightly"))]
+#[inline]
+fn likely(b: bool) -> bool {
+    if !b {
+        cold();
+    }
+    b
+}
+
+#[allow(unused)]
+#[cfg(not(feature = "nightly"))]
+#[inline]
+fn unlikely(b: bool) -> bool {
+    if b {
+        cold();
+    }
+    b
 }

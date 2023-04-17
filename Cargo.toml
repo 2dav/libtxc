@@ -1,27 +1,32 @@
 [package]
 name = "libtxc"
-version = "0.1.0"
+version = "0.2.0"
+description = "Transaq XML Connector API для Rust"
+rust-version = "1.59"
 edition = "2021"
-
-[lib]
-path = "src/lib.rs"
-crate-type = ["lib"]
-doctest = false
-
-[[bin]]
-name = "example"
-path = "src/example.rs"
+license = "MIT or Apache-2.0"
+repository = "https://github.com/2dav/libtxc"
+documentation = "https://docs.rs/libtxc/"
+readme = "README.md"
+keywords = ["Transaq XML Connector", "algo-trading", "FINAM"]
+categories = ["api-bindings", "finance"]
 
 [dependencies]
-winapi = {version = "0.3.9", features = ["errhandlingapi", "libloaderapi"]}
-slog = "2.4.1"
-slog-stdlog = "4.1.1"
+windows-sys = { version = "0.48.0", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_System_Diagnostics_Debug"]}
+tracing = "0.1.37"
 
-[profile.release]
-lto = "thin"
+[dev-dependencies]
+anyhow = "1.0.70"
+dotenvy = "0.15.7"
+tracing-subscriber = "0.3.16"
+tracing-tracy = {version = "0.10.2", features = ["only-localhost"]}
 
 [features]
-# hot path contains some integrity/safety checks helpfull in development, 
-# 'unchecked' feature disables them all
-unchecked = []
-default = []
+default = ["catch_unwind", "safe_buffers"]
+catch_unwind = []
+safe_buffers = []
+
+[profile.release]
+lto = true
+codegen-units = 1
+incremental = false

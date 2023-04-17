@@ -1,4 +1,6 @@
-**/target/
-**/*.rk
-**/*.lock
+target
+*.rk
+*.lock
 *.dll
+.cargo
+.env

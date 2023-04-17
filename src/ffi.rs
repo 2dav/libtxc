@@ -1,198 +1,133 @@
-use std::os::{
-    raw::{c_int, c_void},
-    windows::prelude::OsStrExt,
-};
 use std::{
-    ffi::{CStr, CString, OsStr},
-    mem::transmute,
-};
-use winapi::{
-    shared::minwindef::{FARPROC, HMODULE},
-    um::{errhandlingapi as er, libloaderapi as ll},
+    ffi::{c_int, c_void, CStr, CString, OsStr},
+    io, mem,
+    os::windows::ffi::OsStrExt,
+    path::PathBuf,
 };
 
-type Initialize = unsafe extern "C" fn(*const u8, c_int) -> *const u8;
-type SetLogLevel = unsafe extern "C" fn(c_int) -> *const u8;
-type SendCommand = unsafe extern "C" fn(*const u8) -> *const u8;
-type FreeMemory = unsafe extern "C" fn(*const u8) -> bool;
-type UnInitialize = unsafe extern "C" fn() -> *const u8;
-type CallbackEx = extern "C" fn(*const u8, *mut c_void) -> bool;
-type Callback = extern "C" fn(*const u8) -> bool;
-type SetCallbackEx = unsafe extern "C" fn(CallbackEx, *const c_void) -> bool;
-type SetCallback = unsafe extern "C" fn(Callback) -> bool;
+use windows_sys::Win32::Foundation::{GetLastError, HMODULE};
+use windows_sys::Win32::System::Diagnostics::Debug as dbg;
+use windows_sys::Win32::System::LibraryLoader as ll;
 
-/// Holds the handle of the instance of the loaded library and it's functions pointers
-/// Handle is owned by the `Lib`, dropping it unloads corresponding library and
-/// frees it's resources.
-pub struct Lib {
+pub type Initialize = unsafe extern "C" fn(*const u8, c_int) -> *const u8;
+pub type SetLogLevel = unsafe extern "C" fn(c_int) -> *const u8;
+pub type SendCommand = unsafe extern "C" fn(*const u8) -> *const u8;
+pub type FreeMemory = unsafe extern "C" fn(*const u8) -> bool;
+pub type UnInitialize = unsafe extern "C" fn() -> *const u8;
+pub type SetCallbackEx = unsafe extern "C" fn(CallbackEx, *const c_void) -> bool;
+pub type CallbackEx = extern "C" fn(*const u8, *mut c_void) -> bool;
+
+pub struct Module {
     handle: HMODULE,
-    _initialize: Initialize,
-    _set_log_level: SetLogLevel,
-    _send_command: SendCommand,
-    _set_callback_ex: SetCallbackEx,
-    _set_callback: SetCallback,
-    _free_memory: FreeMemory,
-    _uninitialize: UnInitialize,
+    pub initialize: Initialize,
+    pub set_log_level: SetLogLevel,
+    pub send_command: SendCommand,
+    pub set_callback_ex: SetCallbackEx,
+    pub free_memory: FreeMemory,
+    pub uninitialize: UnInitialize,
 }
 
-#[inline]
-unsafe fn into_result<T>(p: *mut T) -> Result<*mut T, std::io::Error> {
-    if p.is_null() {
-        Err(std::io::Error::from_raw_os_error(er::GetLastError() as i32))
-    } else {
-        Ok(p)
-    }
-}
+// `TransaqXMLConnector` ensures thread-safety for it's state and methods internally
+unsafe impl Send for Module {}
+unsafe impl Sync for Module {}
 
-/// Load library and returns ready to use wrapper over library functions
-pub unsafe fn load<P: AsRef<OsStr>>(path: P) -> Result<Lib, std::io::Error> {
-    {
-        let wide_filename: Vec<u16> = path.as_ref().encode_wide().chain(Some(0)).collect();
-        let mut prev_mode = 0;
-
-        er::SetThreadErrorMode(1, &mut prev_mode);
-        let h = ll::LoadLibraryW(wide_filename.as_ptr());
-        er::SetThreadErrorMode(prev_mode, std::ptr::null_mut());
-
-        into_result(h)
-    }
-    .and_then(|handle| {
-        unsafe fn paddr(h: HMODULE, f: &[u8]) -> Result<FARPROC, std::io::Error> {
-            let s = ll::GetProcAddress(h, f.as_ptr().cast());
-            into_result(s)
+impl Drop for Module {
+    #[inline]
+    fn drop(&mut self) {
+        unsafe {
+            let _ = (self.uninitialize)();
+            ll::FreeLibrary(self.handle);
         }
-        let initialize = paddr(handle, b"Initialize\0")?;
-        let set_loglevel = paddr(handle, b"SetLogLevel\0")?;
-        let send_command = paddr(handle, b"SendCommand\0")?;
-        let set_cb_ex = paddr(handle, b"SetCallbackEx\0")?;
-        let set_cb = paddr(handle, b"SetCallback\0")?;
-        let free_mem = paddr(handle, b"FreeMemory\0")?;
-        let uninitialize = paddr(handle, b"UnInitialize\0")?;
-
-        Ok(Lib {
-            handle,
-            _initialize: transmute(initialize),
-            _set_log_level: transmute(set_loglevel),
-            _send_command: transmute(send_command),
-            _set_callback_ex: transmute(set_cb_ex),
-            _set_callback: transmute(set_cb),
-            _free_memory: transmute(free_mem),
-            _uninitialize: transmute(uninitialize),
-        })
-    })
+    }
 }
 
-type BoxedClosurePtr = *mut Box<dyn FnMut(*const u8)>;
-
-#[no_mangle]
-extern "C" fn txc_callback_ex(p: *const u8, ctx: *mut c_void) -> bool {
-    unsafe { (*(ctx as BoxedClosurePtr))(p) };
-    true
-}
-
-macro_rules! ok_or_err {
-    ($this:expr, $f:expr, $($args:expr),*) => {{
-        let p = unsafe { ($f)($($args),*) };
-        if p.is_null() {
-            Ok(())
+macro_rules! last_error_or {
+    ($msg:expr) => {{
+        let error = GetLastError();
+        if error != 0 {
+            io::Error::from_raw_os_error(error as i32)
         } else {
-            let m = to_rstring(p);
-            $this.free_memory(p);
-            Err(m)
+            io::Error::new(io::ErrorKind::Other, $msg)
         }
     }};
 }
 
-impl Lib {
-    /// txc::Initialize
-    #[inline]
-    pub fn initialize(&self, path: &CStr, log_level: c_int) -> Result<(), String> {
-        ok_or_err!(self, self._initialize, path.as_ptr().cast(), log_level)
+#[inline(never)]
+unsafe fn load(wide_filename: Vec<u16>) -> Result<HMODULE, io::Error> {
+    let mut prev_mode = 0;
+
+    dbg::SetThreadErrorMode(dbg::SEM_FAILCRITICALERRORS, &mut prev_mode);
+
+    let handle = ll::LoadLibraryExW(wide_filename.as_ptr(), 0, 0);
+    let ret = if handle != 0 {
+        Ok(handle)
+    } else {
+        Err(last_error_or!("Не удалось загрузить библиотеку по неизвестной причине"))
+    };
+
+    dbg::SetThreadErrorMode(prev_mode, std::ptr::null_mut());
+
+    ret
+}
+
+impl Module {
+    pub unsafe fn load<P: AsRef<OsStr>>(path: P) -> Result<Self, io::Error> {
+        {
+            let wide_filename: Vec<u16> = path.as_ref().encode_wide().chain(Some(0)).collect();
+            if ll::GetModuleHandleExW(0, wide_filename.as_ptr(), &mut 0) != 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    "Библиотека уже загружена в пространство процесса",
+                ));
+            }
+
+            load(wide_filename)
+        }
+        .and_then(|handle| {
+            macro_rules! proc_addr {
+                ($p:expr) => {{
+                    let addr = ll::GetProcAddress(handle, $p.as_ptr().cast());
+                    if addr.is_none() {
+                        return Err(last_error_or!(format!(
+                            "Не удалось получить адресс функции {}",
+                            $p
+                        )));
+                    }
+                    mem::transmute(addr)
+                }};
+            }
+            Ok(Self {
+                handle,
+                initialize: proc_addr!("Initialize\0"),
+                set_log_level: proc_addr!("SetLogLevel\0"),
+                send_command: proc_addr!("SendCommand\0"),
+                set_callback_ex: proc_addr!("SetCallbackEx\0"),
+                free_memory: proc_addr!("FreeMemory\0"),
+                uninitialize: proc_addr!("UnInitialize\0"),
+            })
+        })
     }
 
-    /// txc::SetLogLevel
-    #[inline]
-    pub fn set_log_level(&self, log_level: c_int) -> Result<(), String> {
-        ok_or_err!(self, self._set_log_level, log_level)
-    }
-
-    /// txc::UnInitialize
-    #[inline]
-    pub fn uninitialize(&self) -> Result<(), String> {
-        ok_or_err!(self, self._uninitialize,)
-    }
-
-    /// txc::SendCommand
-    #[inline]
-    pub fn send_bytes(&self, cmd: &[u8]) -> Result<String, String> {
-        /* connector response might come in three forms:
-         * Success:   <result success=”true” ... />
-         * Error:     <result success=”false”>...</result>
-         * Exception: <error>...</error>
-         */
-        let p = unsafe { (self._send_command)(cmd.as_ptr()) };
-        let result = to_rstring(p);
-        self.free_memory(p);
-        if result.chars().nth(17).unwrap() == 't' {
-            Ok(result)
-        } else {
-            Err(result)
+    pub fn initialize(&self, log_dir: PathBuf, logging_level: c_int) -> Result<(), String> {
+        let work_dir = CString::new(log_dir.to_string_lossy().to_string()).unwrap();
+        unsafe {
+            match (self.initialize)(work_dir.as_ptr() as _, logging_level) {
+                p if p.is_null() => Ok(()),
+                p => {
+                    let msg = CStr::from_ptr(p as _).to_string_lossy().to_string();
+                    (self.free_memory)(p as _);
+                    Err(msg)
+                }
+            }
         }
     }
 
-    /// txc::FreeMemory
+    pub fn set_callback_ex(&self, callback: CallbackEx, payload: *const c_void) -> bool {
+        unsafe { (self.set_callback_ex)(callback, payload) }
+    }
+
     #[inline]
-    pub fn free_memory(&self, pbuff: *const u8) -> bool {
-        unsafe { (self._free_memory)(pbuff) }
+    pub fn send_command(&self, p: *const u8) -> *const u8 {
+        unsafe { (self.send_command)(p) }
     }
-
-    /// txc::SetCallback
-    #[inline]
-    #[allow(unused)]
-    pub fn set_callback_(&self, cb: Callback) -> bool {
-        unsafe { (self._set_callback)(cb) }
-    }
-
-    /// txc::SetCallbackEx
-    #[inline]
-    pub fn set_callback_ex(&self, cb: CallbackEx, payload: *mut c_void) -> bool {
-        unsafe { (self._set_callback_ex)(cb, payload) }
-    }
-}
-
-impl Lib {
-    /// Sets Rust closure as a c_void pointer callback by bridging it with additional indirection
-    #[inline]
-    pub fn set_callback<F>(&self, callback: F) -> bool
-    where
-        F: FnMut(*const u8),
-    {
-        let ctx: Box<Box<dyn FnMut(*const u8)>> = Box::new(Box::new(callback));
-        self.set_callback_ex(txc_callback_ex, Box::into_raw(ctx).cast())
-    }
-}
-
-impl Drop for Lib {
-    fn drop(&mut self) {
-        unsafe { ll::FreeLibrary(self.handle) };
-    }
-}
-
-// Converts C-String pointer to Rust String
-#[inline]
-fn to_rstring(p: *const u8) -> String {
-    #[cfg(feature = "unchecked")]
-    unsafe {
-        String::from_utf8_unchecked(CStr::from_ptr(p.cast()).to_bytes().to_vec())
-    }
-    #[cfg(not(feature = "unchecked"))]
-    unsafe {
-        CStr::from_ptr(p.cast()).to_string_lossy().to_string()
-    }
-}
-
-// Converts Rust String to C compatible String
-#[inline]
-pub(crate) fn to_cstring<S: AsRef<str>>(rstr: S) -> CString {
-    CString::new(rstr.as_ref().as_bytes()).unwrap()
 }
