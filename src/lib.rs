@@ -37,6 +37,12 @@
 //! # License
 //! * [Apache Version 2.0](https://www.apache.org/licenses/LICENSE-2.0)
 //! * [MIT](https://opensource.org/licenses/MIT)
+
+#[cfg(not(windows))]
+compile_error!(
+    "TXC library is a 'Windows DLL', and so this doesn't work on anything but 'MS Windows', sorry"
+);
+
 use std::{cell::Cell, fmt, io, path::PathBuf, sync::Arc};
 use tracing::{error, info, instrument, warn};
 
