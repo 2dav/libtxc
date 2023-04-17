@@ -8,7 +8,7 @@ license = "MIT or Apache-2.0"
 repository = "https://github.com/2dav/libtxc"
 documentation = "https://docs.rs/libtxc/"
 readme = "README.md"
-keywords = ["Transaq XML Connector", "algo-trading", "FINAM"]
+keywords = ["transaq-connector", "algo-trading", "FINAM"]
 categories = ["api-bindings", "finance"]
 
 [dependencies]
