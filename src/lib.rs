@@ -13,7 +13,7 @@
 //! сообщений) в любом участке кода гарантирует безопасность связанных с ними операций.
 //! Исключён потенциальный *deadlock*, присутствующий в дизайне коннектора.
 //!
-//! - [Примеры](https://github.com/2dav/libtxc/examples)
+//! - [Примеры](https://github.com/2dav/libtxc/tree/master/examples)
 //!
 //! # Instrumentation
 //! `libtxc` содержит [`tracing`](https://docs.rs/tracing/latest/tracing/) probes, которые могут
