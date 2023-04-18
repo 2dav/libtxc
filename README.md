@@ -1,4 +1,18 @@
-[TRANSAQ XML Connector](https://www.finam.ru/howtotrade/tconnector/) API для Rust.
+<div align="center">
+	<h1>libtxc</h1>
+	<p><a href="https://www.finam.ru/howtotrade/tconnector">TRANSAQ XML Connector</a> API для Rust</p>
+
+[crates.io]: https://crates.io/crates/libtxc
+[libs.rs]: https://lib.rs/crates/libtxc
+[documentation]: https://docs.rs/libtxc
+[license]: https://github.com/2dav/libtxc/blob/main/LICENSE
+
+[![crates.io](https://img.shields.io/crates/v/libtxc)][crates.io]
+[![libs.rs](https://img.shields.io/badge/libs.rs-libtxc-orange)][libs.rs]
+[![documentation](https://img.shields.io/docsrs/libtxc)][documentation]
+[![license](https://img.shields.io/crates/l/libtxc)][license]
+
+</div>
 
 `libtxc` позволяет использовать коннектор в программах на `Rust` и добавляет необходимые гарантии 
 безопасности.
