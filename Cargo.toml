@@ -1,6 +1,6 @@
 [package]
 name = "libtxc"
-version = "0.2.2"
+version = "0.2.3"
 description = "Transaq XML Connector API для Rust"
 rust-version = "1.59"
 edition = "2021"
@@ -8,8 +8,9 @@ license = "Apache-2.0/MIT"
 repository = "https://github.com/2dav/libtxc"
 documentation = "https://docs.rs/libtxc/"
 readme = "README.md"
-keywords = ["transaq-connector", "algo-trading", "FINAM"]
+keywords = ["transaq-connector", "algo-trading"]
 categories = ["api-bindings", "finance"]
+exclude = ["/examples"]
 
 [package.metadata.docs.rs]
 default-target = "x86_64-pc-windows-msvc"

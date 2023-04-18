@@ -17,7 +17,7 @@
 //!
 //! # Instrumentation
 //! `libtxc` содержит [`tracing`](https://docs.rs/tracing/latest/tracing/) probes, которые могут
-//! быть использованы для сбора онлайн метрик, профилирования пользовательского кода обратного вызова
+//! быть использованы для сбора онлайн-метрик, профилирования пользовательского кода обратного вызова
 //! или отладки.
 //!
 //! # Features
@@ -405,6 +405,11 @@ impl fmt::Display for LogLevel {
             LogLevel::Default => "LogLevel::Default",
             LogLevel::Maximum => "LogLevel::Maximum",
         })
+    }
+}
+impl From<i32> for LogLevel {
+    fn from(value: i32) -> Self {
+        unsafe { std::mem::transmute(value.clamp(1, 3)) }
     }
 }
 
