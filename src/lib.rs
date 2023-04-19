@@ -206,7 +206,7 @@ impl TransaqConnector {
     /// }
     /// ```
     ///
-    /// См. [examples](https://github.com/2dav/libtxc/examples) в репозитории проекта, для
+    /// См. [examples](https://github.com/2dav/libtxc/tree/master/examples) в репозитории проекта, для
     /// различных примеров использования.  
     #[inline(always)]
     pub fn input_stream(&mut self) -> impl stream::Stream<Output = TCStr<'_>> + '_ {
