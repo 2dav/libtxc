@@ -92,7 +92,7 @@ impl Drop for BoxT {
 
 impl BoxT {
     #[inline]
-    pub fn new<T: Send>(f: T) -> Self {
+    pub fn new<T>(f: T) -> Self {
         Self { boxed_ptr: Box::into_raw(Box::new(f)) as _, drop_fn: drop_t::<T> }
     }
 
