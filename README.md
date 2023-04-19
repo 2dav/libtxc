@@ -39,7 +39,7 @@ fn main() -> Result<(), Box<dyn Error>>{
     let mut txc = TransaqConnector::new(lib.into(), logdir.into(), loglevel)?;
     
     txc.subscribe(|buf| println!("rx: {buf}"));
-    txc.sender().send("<command id = \"get_connector_version\"/>\0")?;
+    unsafe{ txc.sender().send("<command id = \"get_connector_version\"/>\0")? };
     
     std::thread::sleep(std::time::Duration::from_secs(1));
 }
