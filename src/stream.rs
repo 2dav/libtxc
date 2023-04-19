@@ -12,7 +12,7 @@ use std::fmt::Debug;
 /// В **libtxc** [Stream] используется для компоновки конвейера обработки входящих сообщений, который
 /// запускается в потоке данных Transaq XML Connector, см. [`TransaqConnector::input_stream()`](crate::TransaqConnector::input_stream).
 ///
-/// Cм. [examples](https://github.com/2dav/libtxc/examples) для примеров использования.
+/// Cм. [examples](https://github.com/2dav/libtxc/tree/master/examples) для примеров использования.
 pub trait Stream: Sized + Send {
     type Output;
 
