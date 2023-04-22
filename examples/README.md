@@ -16,7 +16,7 @@ TXC_LOG_DIR = 'путь к директории для логов коннект
 
 # Примеры
 - [`offline`](offline.rs) - Демонстрaция базового использования библиотеки без подключения к серверу
-- [`basic`](basic.rs) - Демонстрaция базового использования библиотеки, требует наличия аккаунта
+- [`basic`](basic.rs) - Демонстрaция базового использования библиотеки, требуется наличие аккаунта
 - [`input_filter`](input_filter.rs) - Использование комбинаторов для фильтрации входящих сообщений
 - [`threading`](threading.rs) - Пример многопоточного приложения 
-- [`instrumentation`](instrumentation.rs) - Профилирования с использованием [`tracy`](https://github.com/wolfpld/tracy)
+- [`instrumentation`](instrumentation.rs) - Профилирование с использованием [`tracy`](https://github.com/wolfpld/tracy)

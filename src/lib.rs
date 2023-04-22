@@ -202,7 +202,7 @@ impl TransaqConnector {
     /// // ...
     ///
     /// for msg in rx.into_iter(){
-    ///     println!("Server status: {msg}");
+    ///     /* msg processing */
     /// }
     /// ```
     ///
