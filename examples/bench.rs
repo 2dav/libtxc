@@ -37,7 +37,7 @@ fn main() -> anyhow::Result<()> {
     unsafe {
         for i in 0..N {
             let start = Instant::now();
-            sender.send(get_version)?;
+            let _ = sender.send(get_version);
             *send_delta.as_mut_ptr().add(i) = (Instant::now() - start).as_micros() as usize;
         }
 
@@ -47,11 +47,17 @@ fn main() -> anyhow::Result<()> {
             };
         }
 
+        let send_mean = mean!(send_delta);
         let mean = mean!(deltas[1..]);
         let var = deltas[1..].iter().cloned().map(|x| (mean - x as f64).powi(2)).sum::<f64>()
             / ((N - 2) as f64);
-        let sdelta = mean!(send_delta);
-        info!("mean: {mean:.2} us, std: {:.2} us, send_time:{} us", var.sqrt(), sdelta);
+
+        info!(
+            "mean: {:.2} us, send_time:{} us, std: {:.2} us",
+            mean - send_mean,
+            send_mean,
+            var.sqrt(),
+        );
     }
 
     Ok(())
