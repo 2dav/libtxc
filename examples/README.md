@@ -20,3 +20,4 @@ TXC_LOG_DIR = 'путь к директории для логов коннект
 - [`input_filter`](input_filter.rs) - Использование комбинаторов для фильтрации входящих сообщений
 - [`threading`](threading.rs) - Пример многопоточного приложения 
 - [`instrumentation`](instrumentation.rs) - Профилирование с использованием [`tracy`](https://github.com/wolfpld/tracy)
+- [`bench`](bench.rs) - Синт. замеры времени на круг(отправка-получение) 
