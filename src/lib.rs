@@ -35,10 +35,19 @@
 //! быть использованы для сбора онлайн-метрик, профилирования пользовательского кода обратного вызова
 //! или отладки. Отключение *tracing* позволяет исключить код связанный с probes из сборки.
 //!
-//! # License
-//! * [Apache Version 2.0](https://www.apache.org/licenses/LICENSE-2.0)
-//! * [MIT](https://opensource.org/licenses/MIT)
-
+//! ## License
+//! <sup>
+//! Licensed under either of <a href="https://github.com/2dav/libtxc/blob/master/LICENSE-APACHE">Apache License, Version
+//! 2.0</a> or <a href="https://github.com/2dav/libtxc/blob/master/LICENSE-MIT">MIT license</a> at your option.
+//! </sup>
+//!
+//! <br/>
+//!
+//! <sub>
+//! Unless you explicitly state otherwise, any contribution intentionally submitted
+//! for inclusion in this crate by you, as defined in the Apache-2.0 license, shall
+//! be dual licensed as above, without any additional terms or conditions.
+//! </sub>
 #[cfg(not(windows))]
 compile_error!(
     "TXC library is a 'Windows DLL', and so this doesn't work on anything but 'MS Windows', sorry"
