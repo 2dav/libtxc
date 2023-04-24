@@ -44,8 +44,12 @@ extern "C" fn trampoline<F: FnMut(NonNull<u8>)>(buffer: *const u8, callback: *mu
         eprintln_abort!("Коннектор вернул нулевой указатель");
     }
 
+    #[cfg(feature = "tracing")]
     let span = tracing::debug_span!("trampoline").entered();
+
     with_nonnull_buf(buffer as _, |ptr| run_callback::<F>(callback, ptr), null_ptr_error_abort);
+
+    #[cfg(feature = "tracing")]
     drop(span);
 
     true

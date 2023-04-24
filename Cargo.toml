@@ -1,6 +1,6 @@
 [package]
 name = "libtxc"
-version = "0.2.3"
+version = "0.2.4"
 description = "Transaq XML Connector API для Rust"
 rust-version = "1.59"
 edition = "2021"
@@ -26,9 +26,10 @@ tracing-subscriber = "0.3.16"
 tracing-tracy = {version = "0.10.2", features = ["only-localhost"]}
 
 [features]
-default = ["catch_unwind", "safe_buffers"]
+default = ["catch_unwind", "safe_buffers", "tracing"]
 catch_unwind = []
 safe_buffers = []
+tracing = []
 
 [profile.release]
 lto = true

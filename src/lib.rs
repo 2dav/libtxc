@@ -15,11 +15,6 @@
 //!
 //! - [Примеры](https://github.com/2dav/libtxc/tree/master/examples)
 //!
-//! # Instrumentation
-//! `libtxc` содержит [`tracing`](https://docs.rs/tracing/latest/tracing/) probes, которые могут
-//! быть использованы для сбора онлайн-метрик, профилирования пользовательского кода обратного вызова
-//! или отладки.
-//!
 //! # Features
 //! **catch_unwind** *включено по умолчанию*
 //!
@@ -34,6 +29,12 @@
 //! ответ коннектора будет содержать некорректные данные, это немедленно приведёт к `undefined behaviour`.
 //! *safe_buffers* включает проверку указателей и содержимого буферов, возвращённых коннектором.
 //!
+//! **tracing** *включено по умолчанию*
+//!
+//! `libtxc` содержит [`tracing`](https://docs.rs/tracing/latest/tracing/) "probes", которые могут
+//! быть использованы для сбора онлайн-метрик, профилирования пользовательского кода обратного вызова
+//! или отладки. Отключение *tracing* позволяет исключить код связанный с probes из сборки.
+//!
 //! # License
 //! * [Apache Version 2.0](https://www.apache.org/licenses/LICENSE-2.0)
 //! * [MIT](https://opensource.org/licenses/MIT)
@@ -44,7 +45,9 @@ compile_error!(
 );
 
 use std::{cell::Cell, fmt, io, path::PathBuf, sync::Arc};
-use tracing::{error, info, instrument, warn};
+#[cfg(feature = "tracing")]
+use tracing::instrument;
+use tracing::{error, info, warn};
 
 mod buffers;
 mod callback;
@@ -367,7 +370,7 @@ impl Sender {
     ///
     /// # Panics
     /// В `debug` сборке - если передан нулевой указатель
-    #[instrument(level = "debug", skip_all)]
+    #[cfg_attr(feature = "tracing", instrument(level = "debug", skip_all))]
     #[inline]
     pub unsafe fn send_ptr(&self, ptr: *const u8) -> Result<TCStr<'_>> {
         debug_assert!(!ptr.is_null(), "нулевой указатель");

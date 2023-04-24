@@ -8,6 +8,7 @@ use tracing_subscriber::layer::SubscriberExt;
 // > cargo run --release --example instrumentation
 //
 // Использование средств инструментации `tokio-rs/tracing`.
+// Перед запуском убедитесь что опция компиляции(feature) "tracing" включена.
 //
 // Код участков представляющих интерес для профайлинга оснащён tracing-probes,
 // в этом примере метрики отправляются в профайлер `wolfpld/tracy`.

@@ -1,6 +1,8 @@
 use super::{ffi, Error};
 use std::{ffi::CStr, fmt, ops::Deref, ptr::NonNull};
-use tracing::{instrument, warn};
+#[cfg(feature = "tracing")]
+use tracing::instrument;
+use tracing::warn;
 
 #[inline(always)]
 pub fn with_nonnull_buf<F, E, R>(p: *mut u8, f: F, _or_else: E) -> R
@@ -44,7 +46,7 @@ impl TCStr<'_> {
 }
 
 impl Drop for TCStr<'_> {
-    #[instrument(level = "debug", skip_all)]
+    #[cfg_attr(feature = "tracing", instrument(level = "debug", skip_all))]
     #[inline]
     fn drop(&mut self) {
         let result = unsafe { (self.1)(self.as_ptr() as _) };
@@ -60,7 +62,7 @@ impl Drop for TCStr<'_> {
 impl Deref for TCStr<'_> {
     type Target = CStr;
 
-    #[instrument(level = "debug", skip_all)]
+    #[cfg_attr(feature = "tracing", instrument(level = "debug", skip_all))]
     #[inline]
     fn deref(&self) -> &Self::Target {
         unsafe { CStr::from_ptr(self.0.as_ptr() as _) }
