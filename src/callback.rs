@@ -32,15 +32,34 @@ where
     }
 }
 
+// 'trampoline' is registered as a 'callback' via `txc::set_callback_ex` and get's directly
+// executed by the library within the C-language runtime.
+//
+// All these 'f::<F>' "trickery" are inlined at compile time, thus do not impose indirection to call 'F'.
+// `callback: *mut c_void` is a pointer to 'F's state, if any.
+extern "C" fn trampoline<F: FnMut(NonNull<u8>)>(buffer: *const u8, callback: *mut c_void) -> bool {
+    #[cold]
+    #[inline]
+    fn null_ptr_error_abort() {
+        eprintln_abort!("Коннектор вернул нулевой указатель");
+    }
+
+    let span = tracing::debug_span!("trampoline").entered();
+    with_nonnull_buf(buffer as _, |ptr| run_callback::<F>(callback, ptr), null_ptr_error_abort);
+    drop(span);
+
+    true
+}
+
 #[cfg(not(feature = "catch_unwind"))]
 #[inline(always)]
-fn call_boxfn<F: FnMut(NonNull<u8>)>(callback: *mut c_void, buffer: NonNull<u8>) {
-    unsafe { (*callback.cast::<F>())(buffer) };
+fn run_callback<F: FnMut(NonNull<u8>)>(callback: *mut c_void, buffer: NonNull<u8>) {
+    unsafe { call_fn_ptr::<F>(callback, buffer) };
 }
 
 #[cfg(feature = "catch_unwind")]
 #[inline(always)]
-fn call_boxfn<F: FnMut(NonNull<u8>)>(callback: *mut c_void, buffer: NonNull<u8>) {
+fn run_callback<F: FnMut(NonNull<u8>)>(callback: *mut c_void, buffer: NonNull<u8>) {
     #[cold]
     #[inline]
     fn closure_panic_abort(err: Box<dyn std::any::Any + Send>) -> ! {
@@ -54,24 +73,15 @@ fn call_boxfn<F: FnMut(NonNull<u8>)>(callback: *mut c_void, buffer: NonNull<u8>)
 
     if let Err(err) = std::panic::catch_unwind(|| {
         debug_assert_T_ptr!(F, callback);
-        unsafe { (*callback.cast::<F>())(buffer) };
+        unsafe { call_fn_ptr::<F>(callback, buffer) };
     }) {
         closure_panic_abort(err)
     }
 }
 
-extern "C" fn trampoline<F: FnMut(NonNull<u8>)>(buffer: *const u8, callback: *mut c_void) -> bool {
-    #[cold]
-    #[inline]
-    fn null_ptr_error_abort() {
-        eprintln_abort!("Коннектор вернул нулевой указатель");
-    }
-
-    let span = tracing::debug_span!("trampoline").entered();
-    with_nonnull_buf(buffer as _, |ptr| call_boxfn::<F>(callback, ptr), null_ptr_error_abort);
-    drop(span);
-
-    true
+#[inline(always)]
+unsafe fn call_fn_ptr<F: FnMut(NonNull<u8>)>(f: *mut c_void, arg: NonNull<u8>) {
+    (*f.cast::<F>())(arg);
 }
 
 // `Box<T>` with types erased

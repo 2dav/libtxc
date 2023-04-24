@@ -128,6 +128,7 @@ impl Module {
 
     #[inline]
     pub fn send_command(&self, p: *const u8) -> *const u8 {
+        debug_assert!(!p.is_null());
         unsafe { (self.send_command)(p) }
     }
 }
