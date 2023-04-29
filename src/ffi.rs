@@ -41,13 +41,13 @@ impl Drop for Module {
     }
 }
 
+const NULL: u32 = 0;
+
 macro_rules! last_error_or {
     ($msg:expr) => {{
-        let error = GetLastError();
-        if error != 0 {
-            io::Error::from_raw_os_error(error as i32)
-        } else {
-            io::Error::new(io::ErrorKind::Other, $msg)
+        match GetLastError() {
+            NULL => io::Error::new(io::ErrorKind::Other, $msg),
+            error => io::Error::from_raw_os_error(error as i32),
         }
     }};
 }
@@ -58,8 +58,8 @@ unsafe fn load(wide_filename: Vec<u16>) -> Result<HMODULE, io::Error> {
 
     dbg::SetThreadErrorMode(dbg::SEM_FAILCRITICALERRORS, &mut prev_mode);
 
-    let handle = ll::LoadLibraryExW(wide_filename.as_ptr(), 0, 0);
-    let ret = if handle != 0 {
+    let handle = ll::LoadLibraryExW(wide_filename.as_ptr(), NULL as _, NULL);
+    let ret = if handle != NULL as _ {
         Ok(handle)
     } else {
         Err(last_error_or!("Не удалось загрузить библиотеку по неизвестной причине"))
@@ -73,8 +73,9 @@ unsafe fn load(wide_filename: Vec<u16>) -> Result<HMODULE, io::Error> {
 impl Module {
     pub unsafe fn load<P: AsRef<OsStr>>(path: P) -> Result<Self, io::Error> {
         {
-            let wide_filename: Vec<u16> = path.as_ref().encode_wide().chain(Some(0)).collect();
-            if ll::GetModuleHandleExW(0, wide_filename.as_ptr(), &mut 0) != 0 {
+            let wide_filename: Vec<u16> =
+                path.as_ref().encode_wide().chain(Some(NULL as _)).collect();
+            if ll::GetModuleHandleExW(0, wide_filename.as_ptr(), &mut 0) != NULL as _ {
                 return Err(io::Error::new(
                     io::ErrorKind::AlreadyExists,
                     "Библиотека уже загружена в пространство процесса",

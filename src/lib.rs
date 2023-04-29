@@ -404,7 +404,9 @@ impl fmt::Display for LogLevel {
 }
 impl From<i32> for LogLevel {
     fn from(value: i32) -> Self {
-        unsafe { std::mem::transmute(value.clamp(1, 3)) }
+        unsafe {
+            std::mem::transmute(value.clamp(LogLevel::Minimum as i32, LogLevel::Maximum as i32))
+        }
     }
 }
 

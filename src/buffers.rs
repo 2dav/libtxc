@@ -74,27 +74,43 @@ impl fmt::Display for TCStr<'_> {
     }
 }
 
-/* Response might come in three forms:
+/* Response might be of three forms:
  * Success:   <result success=”true” ... />
  * Error:     <result success=”false”>...</result>
  * Exception: <error>...</error> */
+#[allow(unused)]
+const MIN_RESPONSE_LENGTH: usize = 15;
+const MIN_RESULT_LENGTH: usize = 23;
+const DEFINING_BYTE: usize = 1;
+const RESULT_BOOL_START: usize = 17;
+
+#[inline]
+fn is_result(bytes: &[u8]) -> bool {
+    b'r'.eq(unsafe { bytes.get_unchecked(DEFINING_BYTE) })
+}
+#[inline]
+fn is_success(bytes: &[u8]) -> bool {
+    b't'.eq(unsafe { bytes.get_unchecked(RESULT_BOOL_START) })
+}
+
 #[cfg(feature = "safe_buffers")]
 #[inline(always)]
 pub fn parse_send_response(buf: TCStr) -> super::Result<TCStr> {
     let bytes = buf.to_bytes();
+    let len = bytes.len();
 
-    if bytes.len() < 15 || (b'r' == bytes[1] && bytes.len() < 23) {
+    if len < MIN_RESPONSE_LENGTH || (is_result(bytes) && len < MIN_RESULT_LENGTH) {
         return Err(Error::Internal(format!(
             "Коннектор вернул неожиданное сообщение \"{}\"",
             buf.to_string_lossy()
         )));
     }
 
-    if super::likely(b'r' == bytes[1] && b't' == bytes[17]) {
+    if super::likely(is_result(bytes) && is_success(bytes)) {
         Ok(buf)
     } else {
         let msg = buf.to_string_lossy().to_string();
-        Err(if b'r' == bytes[1] { Error::InvalidCommand(msg) } else { Error::Internal(msg) })
+        Err(if is_result(bytes) { Error::InvalidCommand(msg) } else { Error::Internal(msg) })
     }
 }
 
@@ -102,13 +118,15 @@ pub fn parse_send_response(buf: TCStr) -> super::Result<TCStr> {
 #[inline(always)]
 pub fn parse_send_response(buf: TCStr) -> super::Result<TCStr> {
     // this version skips implied `strlen`, bounds checks and UTF-8 validation
-    let p = buf.as_ptr() as *const u8;
     unsafe {
-        if super::likely(b'r' == *p.add(1) && b't' == *p.add(17)) {
+        let bytes = std::slice::from_raw_parts(buf.as_ptr() as *const u8, MIN_RESULT_LENGTH);
+
+        if super::likely(is_result(bytes) && is_success(bytes)) {
             Ok(buf)
         } else {
-            let msg = std::str::from_utf8_unchecked(buf.to_bytes()).to_string();
-            Err(if b'r' == *p.add(1) { Error::InvalidCommand(msg) } else { Error::Internal(msg) })
+            let bytes = buf.to_bytes();
+            let msg = std::str::from_utf8_unchecked(bytes).to_string();
+            Err(if is_result(bytes) { Error::InvalidCommand(msg) } else { Error::Internal(msg) })
         }
     }
 }
