@@ -85,8 +85,6 @@ pub enum Error {
 pub type Result<T = ()> = std::result::Result<T, Error>;
 
 struct Inner {
-    // keep this field declaration order to ensure that callback state being dropped first,
-    // since it might contain saved smart-pointers to C-library resources
     callback: Cell<Option<BoxT>>,
     module: ffi::Module,
 }
