@@ -62,7 +62,7 @@ mod callback;
 mod ffi;
 mod stream;
 
-use buffers::{parse_send_response, with_nonnull_buf};
+use buffers::{as_nonnull_txc_buf, parse_send_response};
 use callback::{BoxT, InputStream};
 
 pub use buffers::TCStr;
@@ -128,9 +128,9 @@ impl TransaqConnector {
             return Err(Error::Loading(io::Error::new(io::ErrorKind::NotFound, msg)));
         }
 
-        let module = unsafe { ffi::Module::load(library_path.clone()).map_err(Error::Loading)? };
+        let module = unsafe { ffi::Module::load(library_path).map_err(Error::Loading)? };
 
-        module.initialize(log_dir.clone(), logging_level as _).map_err(Error::Initialization)?;
+        module.initialize(log_dir, logging_level as _).map_err(Error::Initialization)?;
 
         Ok(Self(Arc::new(Inner { module, callback: Cell::new(None) })))
     }
@@ -375,17 +375,9 @@ impl Sender {
     pub unsafe fn send_ptr(&self, ptr: *const u8) -> Result<TCStr<'_>> {
         debug_assert!(!ptr.is_null(), "нулевой указатель");
 
-        #[inline]
-        #[cold]
-        fn cold_failure<'a>() -> Result<TCStr<'a>> {
-            Err(Error::Internal("Коннектор вернул нулевой указатель".into()))
-        }
-
-        with_nonnull_buf(
-            self.0.module.send_command(ptr) as _,
-            |ptr| parse_send_response(TCStr::new(ptr, self.0.module.free_memory)),
-            cold_failure,
-        )
+        as_nonnull_txc_buf(self.0.module.send_command(ptr) as _)
+            .map(|ptr| TCStr::new(ptr, self.0.module.free_memory))
+            .and_then(parse_send_response)
     }
 }
 

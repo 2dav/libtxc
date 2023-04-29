@@ -1,4 +1,4 @@
-use super::buffers::with_nonnull_buf;
+use super::buffers::as_nonnull_txc_buf;
 use super::ffi::CallbackEx;
 use super::stream::Stream;
 use std::{ffi::c_void, mem, ptr::NonNull};
@@ -11,10 +11,10 @@ macro_rules! debug_assert_T_ptr {
 }
 
 macro_rules! eprintln_abort {
-    ($x:tt) => {
-        eprintln!($x);
+    ($($x:tt)+) => {{
+        eprintln!($($x)+);
         std::process::abort()
-    };
+    }};
 }
 
 #[repr(transparent)]
@@ -34,23 +34,13 @@ where
 // 'trampoline' is registered as a 'callback' via `txc::set_callback_ex` and get's directly
 // executed by the library within the C-language runtime.
 extern "C" fn trampoline<F: FnMut(NonNull<u8>)>(buffer: *const u8, callback: *mut c_void) -> bool {
-    #[cold]
-    #[inline]
-    fn null_ptr_error_abort() {
-        eprintln_abort!("Коннектор вернул нулевой указатель");
-    }
-
-    let f = || {
-        with_nonnull_buf(
-            buffer as _,
-            |ptr| invoke_callback::<F>(callback, ptr),
-            null_ptr_error_abort,
-        )
+    let f = || match as_nonnull_txc_buf(buffer as _) {
+        Ok(ptr) => invoke_callback::<F>(callback, ptr),
+        Err(err) => eprintln_abort!("{}", err.to_string()),
     };
 
     #[cfg(feature = "tracing")]
     tracing::debug_span!("trampoline").in_scope(f);
-
     #[cfg(not(feature = "tracing"))]
     f();
 

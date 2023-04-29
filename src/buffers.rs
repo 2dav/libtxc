@@ -4,17 +4,13 @@ use std::{ffi::CStr, fmt, ops::Deref, ptr::NonNull};
 use tracing::instrument;
 
 #[inline(always)]
-pub fn with_nonnull_buf<F, E, R>(p: *mut u8, f: F, _or_else: E) -> R
-where
-    F: Fn(NonNull<u8>) -> R,
-    E: Fn() -> R,
-{
+pub fn as_nonnull_txc_buf(p: *mut u8) -> Result<NonNull<u8>, Error> {
     // though this condition is part of the `safe_buffers` feature contract,
     // it will be successfully predicted all the time and is good to have always on
     if super::likely(!p.is_null()) {
-        f(unsafe { NonNull::new_unchecked(p) })
+        Ok(unsafe { NonNull::new_unchecked(p) })
     } else {
-        _or_else()
+        Err(Error::Internal("Коннектор вернул нулевой указатель".into()))
     }
 }
 
