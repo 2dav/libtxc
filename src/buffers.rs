@@ -2,7 +2,6 @@ use super::{ffi, Error};
 use std::{ffi::CStr, fmt, ops::Deref, ptr::NonNull};
 #[cfg(feature = "tracing")]
 use tracing::instrument;
-use tracing::warn;
 
 #[inline(always)]
 pub fn with_nonnull_buf<F, E, R>(p: *mut u8, f: F, _or_else: E) -> R
@@ -51,7 +50,7 @@ impl Drop for TCStr<'_> {
     fn drop(&mut self) {
         let result = unsafe { (self.1)(self.as_ptr() as _) };
         if super::unlikely(!result) {
-            warn!(
+            eprintln!(
                 "Операция очистки txc буфера FreeMemory(*) завершилась неудачно, \
                   это - недокументированная ситуация и возможно всякое. \
                   Cоздайте issue на github если вам удалось добиться воспроизводимости."

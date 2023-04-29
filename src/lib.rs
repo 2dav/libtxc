@@ -29,11 +29,11 @@
 //! ответ коннектора будет содержать некорректные данные, это немедленно приведёт к `undefined behaviour`.
 //! *safe_buffers* включает проверку указателей и содержимого буферов, возвращённых коннектором.
 //!
-//! **tracing** *включено по умолчанию*
+//! **tracing**
 //!
 //! `libtxc` содержит [`tracing`](https://docs.rs/tracing/latest/tracing/) "probes", которые могут
 //! быть использованы для сбора онлайн-метрик, профилирования пользовательского кода обратного вызова
-//! или отладки. Отключение опции *tracing* позволяет исключить из сборки код связанный с инструментацией.
+//! или отладки. Включение опции *tracing* добавляет зависимость `tokio-rs/tracing` и код инструментации.
 //!
 //! ## License
 //! <sup>
@@ -56,7 +56,6 @@ compile_error!(
 use std::{cell::Cell, fmt, io, path::PathBuf, sync::Arc};
 #[cfg(feature = "tracing")]
 use tracing::instrument;
-use tracing::{error, info, warn};
 
 mod buffers;
 mod callback;
@@ -133,11 +132,7 @@ impl TransaqConnector {
 
         let module = unsafe { ffi::Module::load(library_path.clone()).map_err(Error::Loading)? };
 
-        info!("Library loaded {library_path:?}");
-
         module.initialize(log_dir.clone(), logging_level as _).map_err(Error::Initialization)?;
-
-        info!("Library initialized log_dir:{log_dir:?}, log_level:{logging_level:?}");
 
         Ok(Self(Arc::new(Inner { module, callback: Cell::new(None) })))
     }
@@ -233,10 +228,8 @@ impl TransaqConnector {
                 // fix instruction order, see comment above
                 unsafe { std::arch::asm!("mfence", options(nostack, preserves_flags)) };
                 self.0.callback.set(Some(payload));
-
-                info!("new callback set");
             } else {
-                error!("`set_callback_ex` - Не удалось установить функцию обратного вызова. \
+                eprintln!("`set_callback_ex` - Не удалось установить функцию обратного вызова. \
                 В документации к коннектору нет описания этой ситуации, как и способов её исправления.\
                 Если вам удалось добиться воспроизводимости этой ошибки создайте issue на github");
             }

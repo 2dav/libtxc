@@ -5,10 +5,9 @@ use tracing_subscriber::layer::SubscriberExt;
 
 // запуск примера:
 // > *run tracy*
-// > cargo run --release --example instrumentation
+// > cargo run --release --example instrumentation --features "tracing"
 //
 // Использование средств инструментации `tokio-rs/tracing`.
-// Перед запуском убедитесь что опция компиляции(feature) "tracing" включена.
 //
 // Код участков представляющих интерес для профайлинга оснащён tracing-probes,
 // в этом примере метрики отправляются в профайлер `wolfpld/tracy`.

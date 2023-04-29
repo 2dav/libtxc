@@ -12,7 +12,6 @@ macro_rules! debug_assert_T_ptr {
 
 macro_rules! eprintln_abort {
     ($x:tt) => {
-        tracing::error!($x);
         eprintln!($x);
         std::process::abort()
     };
@@ -34,9 +33,6 @@ where
 
 // 'trampoline' is registered as a 'callback' via `txc::set_callback_ex` and get's directly
 // executed by the library within the C-language runtime.
-//
-// All these 'f::<F>' "trickery" are inlined at compile time, thus do not impose indirection to call 'F'.
-// `callback: *mut c_void` is a pointer to 'F's state, if any.
 extern "C" fn trampoline<F: FnMut(NonNull<u8>)>(buffer: *const u8, callback: *mut c_void) -> bool {
     #[cold]
     #[inline]
@@ -44,26 +40,32 @@ extern "C" fn trampoline<F: FnMut(NonNull<u8>)>(buffer: *const u8, callback: *mu
         eprintln_abort!("Коннектор вернул нулевой указатель");
     }
 
-    #[cfg(feature = "tracing")]
-    let span = tracing::debug_span!("trampoline").entered();
+    let f = || {
+        with_nonnull_buf(
+            buffer as _,
+            |ptr| invoke_callback::<F>(callback, ptr),
+            null_ptr_error_abort,
+        )
+    };
 
-    with_nonnull_buf(buffer as _, |ptr| run_callback::<F>(callback, ptr), null_ptr_error_abort);
-
     #[cfg(feature = "tracing")]
-    drop(span);
+    tracing::debug_span!("trampoline").in_scope(f);
+
+    #[cfg(not(feature = "tracing"))]
+    f();
 
     true
 }
 
 #[cfg(not(feature = "catch_unwind"))]
 #[inline(always)]
-fn run_callback<F: FnMut(NonNull<u8>)>(callback: *mut c_void, buffer: NonNull<u8>) {
-    unsafe { call_fn_ptr::<F>(callback, buffer) };
+fn invoke_callback<F: FnMut(NonNull<u8>)>(callback: *mut c_void, buffer: NonNull<u8>) {
+    unsafe { invoke_fn_ptr::<F>(callback, buffer) };
 }
 
 #[cfg(feature = "catch_unwind")]
 #[inline(always)]
-fn run_callback<F: FnMut(NonNull<u8>)>(callback: *mut c_void, buffer: NonNull<u8>) {
+fn invoke_callback<F: FnMut(NonNull<u8>)>(callback: *mut c_void, buffer: NonNull<u8>) {
     #[cold]
     #[inline]
     fn closure_panic_abort(err: Box<dyn std::any::Any + Send>) -> ! {
@@ -77,14 +79,14 @@ fn run_callback<F: FnMut(NonNull<u8>)>(callback: *mut c_void, buffer: NonNull<u8
 
     if let Err(err) = std::panic::catch_unwind(|| {
         debug_assert_T_ptr!(F, callback);
-        unsafe { call_fn_ptr::<F>(callback, buffer) };
+        unsafe { invoke_fn_ptr::<F>(callback, buffer) };
     }) {
         closure_panic_abort(err)
     }
 }
 
 #[inline(always)]
-unsafe fn call_fn_ptr<F: FnMut(NonNull<u8>)>(f: *mut c_void, arg: NonNull<u8>) {
+unsafe fn invoke_fn_ptr<F: FnMut(NonNull<u8>)>(f: *mut c_void, arg: NonNull<u8>) {
     (*f.cast::<F>())(arg);
 }
 
