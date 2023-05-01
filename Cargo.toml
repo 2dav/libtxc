@@ -1,6 +1,6 @@
 [package]
 name = "libtxc"
-version = "0.2.5"
+version = "0.2.6"
 description = "Transaq XML Connector API для Rust"
 rust-version = "1.59"
 edition = "2021"
