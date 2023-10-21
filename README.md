@@ -1,3 +1,11 @@
+-------------
+
+
+Разработка прекращена, см. [txcproxy](https://github.com/2dav/txcproxy)
+
+
+-------------
+
 <div align="center">
 	<h1>libtxc</h1>
 	<p><a href="https://www.finam.ru/howtotrade/tconnector">TRANSAQ XML Connector</a> API для Rust</p>
